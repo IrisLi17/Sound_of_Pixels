@@ -126,8 +126,6 @@ class double_conv(nn.Module):
 start_fm = 16
 
 class UNet(nn.Module):
-    # 9 conv layers downward and 9 layers upward
-    # different from 7 layers in the paper
     def __init__(self):
         super(UNet, self).__init__()
 
@@ -163,10 +161,10 @@ class UNet(nn.Module):
         self.ex_double_conv1 = double_conv(start_fm * 2, start_fm, 3, 1, 1)
         # One by One Conv
         self.one_by_one = nn.Conv2d(start_fm, 1, 1, 1, 0)
-        self.sum_of_one = nn.Linear(2,1,False)
+        self.sum_of_one = nn.Conv2d(2, 1, 3, 1, 1)
         # self.final_act = nn.Sigmoid()
 
-        self.finalconv = nn.Conv2d(1, self.kchannels, kernel_size=3)
+        self.finalconv = nn.Conv2d(1, self.kchannels, 3, 1, 1)
 
     def forward(self, inputs):
         # Contracting Path
