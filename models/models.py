@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import math
 import numpy as np
+import torchvision.models as v_models
 
 
 # TODO implement ResNet18 and U-net
@@ -104,7 +105,7 @@ class ModifyResNet(nn.Module):
         # x = x.view(x.size(0), -1)
         # x = self.fc(x)
         x = self.conv2(x)
-        # so called spatial max pooling
+        # temperal max pooling
         x = torch.max(x, dim=0, keepdim=True)[0]
         print('x shape: ' + str(x.shape))
         # sigmoid activation
@@ -234,7 +235,13 @@ class Synthesizer(nn.Module):
 
 
 def modifyresnet18():
+    resnet18 = v_models.resnet18(pretrained=True)
     net = ModifyResNet(BasicBlock, [2, 2, 2, 2])
+    pretrained_dict = resnet18.state_dict()
+    modified_dict = net.state_dict()
+    pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in modified_dict}
+    modified_dict.update(pretrained_dict)
+    net.load_state_dict(modified_dict)
     return net
 
 
