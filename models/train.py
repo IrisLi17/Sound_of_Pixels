@@ -11,12 +11,20 @@ def mix_spect_input(spect_input):
     return temp[np.newaxis, :]
 
 
-def train1step(image_input, spect_input, N=2):
+def train1step(video_net, audio_net, syn_net, image_input, spect_input, N=2):
+    """
+    :param video_net: modified resnet18,
+    :param audio_net: modified unet7,
+    :param syn_net: a linear layer,
+    :param image_input: numpy array of size (N, number_of_frames, number_of_channels, height, width), which is (N, 3, 3, 224, 224) in this project
+    :param spect_input: numpy array of size (N, 1, 256, 256)
+    :param N: how many videos are mixed, default to 2
+    """
     # os.environ["CUDA_VISIBLE_DEVICES"] = "1"
     # create networks
-    video_net = modifyresnet18()
-    audio_net = UNet7()
-    syn_net = synthesizer()
+    # video_net = modifyresnet18()
+    # audio_net = UNet7()
+    # syn_net = synthesizer()
 
     # load input
     # image_input = np.random.rand(N, 3, 3, 224, 224)
@@ -61,9 +69,12 @@ def train1step(image_input, spect_input, N=2):
 
 def test_train1step():
     N = 2
+    video_net = modifyresnet18()
+    audio_net = UNet7()
+    syn_net = synthesizer()
     image_input = np.random.rand(N, 3, 3, 224, 224)
     spect_input = np.random.rand(N, 1, 256, 256)
-    train1step(image_input, spect_input)
+    train1step(video_net, audio_net, syn_net, image_input, spect_input)
 
 
 if __name__ == '__main__':
