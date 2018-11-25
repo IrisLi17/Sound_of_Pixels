@@ -137,8 +137,6 @@ start_fm = 16
 
 
 class UNet(nn.Module):
-    # 9 conv layers downward and 9 layers upward
-    # different from 7 layers in the paper
     def __init__(self):
         super(UNet, self).__init__()
 
