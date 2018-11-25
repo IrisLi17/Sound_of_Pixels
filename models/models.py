@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import math
+import numpy as np
 
 
 # TODO implement ResNet18 and U-net
@@ -46,7 +47,7 @@ class ModifyResNet(nn.Module):
     def __init__(self, block, layers):
         self.inplanes = 64
         self.kchannels = 16
-        super(ResNet, self).__init__()
+        super(ModifyResNet, self).__init__()
         self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
                                bias=False)
         self.bn1 = nn.BatchNorm2d(64)
@@ -55,11 +56,13 @@ class ModifyResNet(nn.Module):
         self.layer1 = self._make_layer(block, 64, layers[0])
         self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
         self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=0, dilation=2)
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=1, dilation=2)
         # self.avgpool = nn.AvgPool2d(7, stride=1)
         # self.fc = nn.Linear(512 * block.expansion, num_classes)
         # add a conv layer according to the sound of pixel
-        self.conv2 = nn.Conv2d(64, self.kchannels, kernel_size=3)
+        self.conv2 = nn.Conv2d(512, self.kchannels, kernel_size=3, padding=1)
+        self.spatialmaxpool = nn.MaxPool2d(kernel_size=14)
+        self.sigmoid = nn.Sigmoid()
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -101,6 +104,13 @@ class ModifyResNet(nn.Module):
         # x = x.view(x.size(0), -1)
         # x = self.fc(x)
         x = self.conv2(x)
+        # so called spatial max pooling
+        x = torch.max(x, dim=0, keepdim=True)[0]
+        print('x shape: ' + str(x.shape))
+        # sigmoid activation
+        x = self.sigmoid(x)
+        x = self.spatialmaxpool(x)
+        print('x shape: ' + str(x.shape))
 
         return x
 
@@ -125,13 +135,14 @@ class double_conv(nn.Module):
 
 start_fm = 16
 
+
 class UNet(nn.Module):
     # 9 conv layers downward and 9 layers upward
     # different from 7 layers in the paper
     def __init__(self):
         super(UNet, self).__init__()
 
-        self.kchannels = 16;
+        self.kchannels = 16
         self.double_conv1 = nn.Conv2d(1, start_fm, 3, 1, 1)
         self.maxpool1 = nn.MaxPool2d(kernel_size=2)
         # Convolution 2
@@ -142,15 +153,15 @@ class UNet(nn.Module):
         self.maxpool3 = nn.MaxPool2d(kernel_size=2)
         # Convolution 4
         self.double_conv4 = double_conv(start_fm * 4, start_fm * 8, 3, 1, 1)
-        #self.maxpool4 = nn.MaxPool2d(kernel_size=2)
+        # self.maxpool4 = nn.MaxPool2d(kernel_size=2)
 
         # Convolution 5
-        #self.double_conv5 = double_conv(start_fm * 8, start_fm * 16, 3, 1, 1)
+        # self.double_conv5 = double_conv(start_fm * 8, start_fm * 16, 3, 1, 1)
 
         # Transposed Convolution 4
-        #self.t_conv4 = nn.ConvTranspose2d(start_fm * 16, start_fm * 8, 2, 2)
+        # self.t_conv4 = nn.ConvTranspose2d(start_fm * 16, start_fm * 8, 2, 2)
         # Expanding Path Convolution 4
-        #self.ex_double_conv4 = double_conv(start_fm * 16, start_fm * 8, 3, 1, 1)
+        # self.ex_double_conv4 = double_conv(start_fm * 16, start_fm * 8, 3, 1, 1)
 
         # Transposed Convolution 3
         self.t_conv3 = nn.ConvTranspose2d(start_fm * 8, start_fm * 4, 2, 2)
@@ -163,10 +174,10 @@ class UNet(nn.Module):
         self.ex_double_conv1 = double_conv(start_fm * 2, start_fm, 3, 1, 1)
         # One by One Conv
         self.one_by_one = nn.Conv2d(start_fm, 1, 1, 1, 0)
-        self.sum_of_one = nn.Linear(2,1,False)
+        self.sum_of_one = nn.Conv2d(2, 1, 3, 1, 1)
         # self.final_act = nn.Sigmoid()
 
-        self.finalconv = nn.Conv2d(1, self.kchannels, kernel_size=3)
+        self.finalconv = nn.Conv2d(1, self.kchannels, 3, 1, 1)
 
     def forward(self, inputs):
         # Contracting Path
@@ -180,16 +191,16 @@ class UNet(nn.Module):
         maxpool3 = self.maxpool3(conv3)
 
         conv4 = self.double_conv4(maxpool3)
-        #maxpool4 = self.maxpool4(conv4)
+        # maxpool4 = self.maxpool4(conv4)
 
         # Bottom
-        #conv5 = self.double_conv5(maxpool4)
+        # conv5 = self.double_conv5(maxpool4)
 
         # Expanding Path
-        #t_conv4 = self.t_conv4(conv5)
-        #cat4 = torch.cat([conv4, t_conv4], 1)
-        #ex_conv4 = self.ex_double_conv4(cat4)
-        #ex_conv4 = ex_conv4 + maxpool4
+        # t_conv4 = self.t_conv4(conv5)
+        # cat4 = torch.cat([conv4, t_conv4], 1)
+        # ex_conv4 = self.ex_double_conv4(cat4)
+        # ex_conv4 = ex_conv4 + maxpool4
 
         t_conv3 = self.t_conv3(conv4)
         cat3 = torch.cat([conv3, t_conv3], 1)
@@ -211,13 +222,33 @@ class UNet(nn.Module):
 
         return k_channels
 
+
+class Synthesizer(nn.Module):
+    def __init__(self):
+        super(Synthesizer, self).__init__()
+        self.linear = nn.Linear(16, 1)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        x = self.linear(x)
+        x = self.sigmoid(x)
+        return x
+
+
 def modifyresnet18():
     net = ModifyResNet(BasicBlock, [2, 2, 2, 2])
     return net
 
+
 def UNet7():
     net = UNet()
     return net
+
+
+def synthesizer():
+    net = Synthesizer()
+    return net
+
 
 if __name__ == '__main__':
     pass
