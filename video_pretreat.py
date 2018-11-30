@@ -54,9 +54,9 @@ for instrument in instrument_class:
 		for i in range(block_num):
 			temp = buf[i*BLOCK_LENGTH:(i+1)*BLOCK_LENGTH,:,:,:]
 			result = temp[FRAME_INDEX,:,:,:]
-			final = np.empty((len(FRAME_INDEX),224,112,3),np.dtype('uint8'))
+			final = np.empty((len(FRAME_INDEX),224,224,3),np.dtype('uint8'))
 			for p in range(0,len(FRAME_INDEX)):
-				final[p,:,:,:]=cv2.resize(result[p,:,:,:],(112,224))
+				final[p,:,:,:]=cv2.resize(result[p,:,:,:],(224,224))
 			np.save(os.path.join(destnation,str(i)),final)
 			#exit()
 
