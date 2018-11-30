@@ -261,8 +261,8 @@ def load_data_from_video(VideoName, audio_datafile, frequency):
 def sample_input(spec_dir, image_dir, phase, N=2, fraction=0.7):
     assert len(os.listdir(spec_dir)) == len(os.listdir(image_dir))
     selected_instruments = sample(os.listdir(spec_dir), N)
-    selected_spec_dirs = [os.path.join(spec_dir, os.listdir(spec_dir)[i]) for i in selected_instruments]
-    selected_image_dirs = [os.path.join(image_dir, os.listdir(image_dir)[i]) for i in selected_instruments]
+    selected_spec_dirs = [os.path.join(spec_dir, i) for i in selected_instruments]
+    selected_image_dirs = [os.path.join(image_dir, i) for i in selected_instruments]
     assert (len(os.listdir(selected_spec_dirs[i])) == len(os.listdir(selected_image_dirs[i])) for i in range(N))
     num_cases = [len(os.listdir(selected_spec_dirs[i])) for i in range(N)]
     if phase == 'train':
@@ -271,12 +271,16 @@ def sample_input(spec_dir, image_dir, phase, N=2, fraction=0.7):
     elif phase == 'validate':
         selected_cases = [sample(os.listdir(selected_spec_dirs[i])[int(fraction * num_cases[i]):], 1) for i in
                           range(N)]  # len: N
-    spec_cases_dirs = [os.path.join(selected_spec_dirs[i], selected_cases[i]) for i in range(N)]
-    image_cases_dirs = [os.path.join(selected_image_dirs[i], selected_cases[i]) for i in range(N)]
+    # print(selected_cases)
+    spec_cases_dirs = [os.path.join(selected_spec_dirs[i], selected_cases[i][0]) for i in range(N)]
+    image_cases_dirs = [os.path.join(selected_image_dirs[i], selected_cases[i][0]) for i in range(N)]
     assert (len(os.listdir(spec_cases_dirs[i])) == len(os.listdir(image_cases_dirs[i])) for i in range(N))
     selected_frames = [sample(os.listdir(spec_cases_dirs[i]), 1) for i in range(N)]
-    spec_frames_dirs = [os.path.join(spec_cases_dirs[i], selected_frames[i]) for i in range(N)]
-    image_frames_dirs = [os.path.join(image_cases_dirs[i], selected_frames[i]) for i in range(N)]
-    spect_input = np.stack([np.load(spec_frames_dirs[i]) for i in range(N)], axis=0)
+    spec_frames_dirs = [os.path.join(spec_cases_dirs[i], selected_frames[i][0]) for i in range(N)]
+    image_frames_dirs = [os.path.join(image_cases_dirs[i], selected_frames[i][0]) for i in range(N)]
+    spect_input = [np.absolute(np.load(spec_frames_dirs[i])) for i in range(N)]
+    for i in range(N):
+        spect_input[i] = spect_input[i][np.newaxis,:]
+    spect_input = np.stack([i for i in spect_input], axis=0)
     image_input = np.stack([np.transpose(np.load(image_frames_dirs[i]), (0, 3, 1, 2)) for i in range(N)], axis=0)
     return [spect_input, image_input]
