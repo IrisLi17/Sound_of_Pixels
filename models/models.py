@@ -5,7 +5,6 @@ import numpy as np
 import torchvision.models as v_models
 
 
-# TODO implement ResNet18 and U-net
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
     return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
@@ -90,7 +89,7 @@ class ModifyResNet(nn.Module):
 
         return nn.Sequential(*layers)
 
-    def forward(self, x):
+    def forward(self, x, mode='train'):
         x = self.conv1(x)
         x = self.bn1(x)
         x = self.relu(x)
@@ -107,11 +106,12 @@ class ModifyResNet(nn.Module):
         x = self.conv2(x)
         # temperal max pooling
         x = torch.max(x, dim=0, keepdim=True)[0]
-        print('x shape: ' + str(x.shape))
+        # print('x shape: ' + str(x.shape))
         # sigmoid activation
         x = self.sigmoid(x)
-        x = self.spatialmaxpool(x)
-        print('x shape: ' + str(x.shape))
+        if mode != 'test':
+            x = self.spatialmaxpool(x)
+            # print('x shape: ' + str(x.shape))
 
         return x
 
