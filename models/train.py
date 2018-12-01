@@ -1,6 +1,7 @@
 from models.models import modifyresnet18, UNet7, synthesizer
 from util.datahelper import sample_input
 from util.metrics import compute_validation
+from util.waveoperate import mask2wave
 import itertools
 import torch
 import torch.nn as nn
@@ -41,7 +42,7 @@ def train1step(video_net, audio_net, syn_net, image_input, spect_input, N=2, val
     # useful definitions
     dominant_idx = np.argmax(spect_input, axis=0)
     loss = torch.zeros(N, dtype=torch.float64)
-    estimated_spects = np.zeros((N, 1, 256, 256))
+    estimated_spects = torch.zeros((N, 1, 256, 256))
     video_optimizer = optim.SGD(video_net.parameters(), lr=0.0001, momentum=0.9)
     audio_optimizer = optim.SGD(audio_net.parameters(), lr=0.001, momentum=0.9)
     syn_optimizer = optim.SGD(syn_net.parameters(), lr=0.001, momentum=0.9)
@@ -59,13 +60,18 @@ def train1step(video_net, audio_net, syn_net, image_input, spect_input, N=2, val
         temp = torch.transpose(temp, 1, 2)
         temp = torch.transpose(temp, 2, 3)
         syn_act = syn_net.forward(temp)  # sigmoid logits
+        syn_act = torch.transpose(syn_act, 2, 3)
+        syn_act = torch.transpose(syn_act, 1, 2)  # 1, 1, 256, 256
         syn_act_flat = syn_act.view(-1)
         # label
         mask_truth = (dominant_idx == i).astype('float64')
         label_flat = torch.from_numpy(mask_truth.ravel()).float()
         # cross entropy loss
-        loss[i] = torch.sum(-label_flat * torch.log(syn_act_flat))
-        estimated_spects[i, :, :, :] = synspect_input * syn_act
+        loss[i] = nn.functional.binary_cross_entropy(syn_act_flat, label_flat)
+        # loss[i] = torch.sum(-label_flat * torch.log(syn_act_flat)-(1-label_flat) * torch.log(1- syn_act_flat))
+        # print('synspect input size'+str(synspect_input.shape))
+        # print('syn act size'+str(syn_act.shape))
+        estimated_spects[i, :, :, :] = (synspect_input * syn_act)[0, :, :, :]
 
     # back prop
     total_loss = torch.sum(loss)
@@ -75,9 +81,9 @@ def train1step(video_net, audio_net, syn_net, image_input, spect_input, N=2, val
     syn_optimizer.step()
 
     if validate:
-        return [total_loss, estimated_spects]
+        return [total_loss.detach().numpy(), estimated_spects.detach().numpy()]
     else:
-        return total_loss
+        return total_loss.detach().numpy()
 
 
 def eval1step(video_net, audio_net, syn_net, image_input, spect_input):
@@ -127,9 +133,14 @@ def train_all(spec_dir, image_dir, num_epoch=10, validate_freq=100, log_freq=10,
                                                       validate=True)
                 total_loss += loss
                 # convert spects to wav
-                wav_input = None  # N
-                wav_mixed = None  # 1
-                wav_estimated = None  # N
+                wav_input = np.stack([mask2wave(spect_input[i, 0, :, :]) for i in range(spect_input.shape[0])],
+                                     axis=0)  # N, nsample
+                wav_mixed = np.reshape(mask2wave(mix_spect_input(spect_input)),(1,-1)) # 1, nsample
+                wav_estimated = np.stack(
+                    [mask2wave(estimated_spects[i, 0, :, :]) for i in range(estimated_spects.shape[0])], axis=0)  # N, nsample
+                # print('wav input shape: ' + str(wav_input.shape))
+                # print('wav mixed shape: ' + str(wav_mixed.shape))
+                # print('wav estimated shape: ' + str(wav_estimated.shape))
                 [nsdr, sir, sar] = compute_validation(wav_input, wav_estimated, wav_mixed)
             else:
                 [spect_input, image_input] = sample_input(spec_dir, image_dir, 'train')
@@ -144,6 +155,7 @@ def train_all(spec_dir, image_dir, num_epoch=10, validate_freq=100, log_freq=10,
                     print("sar %f" % sar)
                 sys.stdout.flush()
                 if not os.path.exists(os.path.join(log_dir, 'log.csv')):
+                    os.mkdir(log_dir)
                     with open(os.path.join(log_dir, 'log.csv'), 'a', newline='') as csvfile:
                         spamwriter = csv.writer(csvfile, delimiter=',',
                                                 quotechar=',', quoting=csv.QUOTE_MINIMAL)
@@ -153,9 +165,9 @@ def train_all(spec_dir, image_dir, num_epoch=10, validate_freq=100, log_freq=10,
                     spamwriter = csv.writer(csvfile, delimiter=',',
                                             quotechar=',', quoting=csv.QUOTE_MINIMAL)
                     if t % validate_freq == 0:
-                        data = [epoch, t, total_loss, nsdr, sir, sar]
+                        data = [epoch, t, total_loss / log_freq, nsdr, sir, sar]
                     else:
-                        data = [epoch, t, total_loss, None, None, None]
+                        data = [epoch, t, total_loss / log_freq, None, None, None]
                     spamwriter.writerow(data)
 
                 total_loss = 0.0
@@ -195,9 +207,12 @@ def train_all(spec_dir, image_dir, num_epoch=10, validate_freq=100, log_freq=10,
                 #                         # exit()
                 #                         total_loss = train1step(video_net, audio_net, syn_net, image_input, spect_input)
                 #                         # save params
-        torch.save(video_net.state_dict(), os.path.join(model_dir,'video_net_params.pkl'))
+        if not os.path.exists(model_dir):
+            os.mkdir(model_dir)
+        torch.save(video_net.state_dict(), os.path.join(model_dir, 'video_net_params.pkl'))
         torch.save(audio_net.state_dict(), os.path.join(model_dir, 'audio_net_params.pkl'))
         torch.save(syn_net.state_dict(), os.path.join(model_dir, 'syn_net_params.pkl'))
+        print("model saved to " + str(model_dir) + '\n')
 
 
 if __name__ == '__main__':
