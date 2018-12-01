@@ -2,6 +2,7 @@ import os
 import matplotlib.pyplot as plt
 from util.datahelper import load_data_from_video
 from models.train import train_all
+import datetime
 
 
 def main():
@@ -20,7 +21,8 @@ def main():
     # plt.show()
     SPEC_DIR = '/data/liyunfei/dataset/audio_spectrums'
     IMAGE_DIR = '/data/liyunfei/dataset/video_3frames'
-    train_all(SPEC_DIR, IMAGE_DIR, log_dir='/data/liyunfei/dataset/log', model_dir='/data/liyunfei/dataset/model')
+    log_dir = os.path.join('/data/liyunfei/dataset/log', datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S"))
+    train_all(SPEC_DIR, IMAGE_DIR, log_dir=log_dir, model_dir='/data/liyunfei/dataset/model')
 
 
 if __name__ == '__main__':
