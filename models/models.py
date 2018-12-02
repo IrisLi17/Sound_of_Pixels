@@ -60,17 +60,21 @@ class ModifyResNet(nn.Module):
         # self.avgpool = nn.AvgPool2d(7, stride=1)
         # self.fc = nn.Linear(512 * block.expansion, num_classes)
         # add a conv layer according to the sound of pixel
-        self.conv2 = nn.Conv2d(512, self.kchannels, kernel_size=3, padding=1)
+        self.myconv2 = nn.Conv2d(512, self.kchannels, kernel_size=3, padding=1)
+        nn.init.constant_(self.myconv2.bias, 0.0)
+        # with torch.no_grad():
+        #     self.conv2.weight *= 0.0
         self.spatialmaxpool = nn.MaxPool2d(kernel_size=14)
         self.sigmoid = nn.Sigmoid()
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
-                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels * m.in_channels
                 m.weight.data.normal_(0, math.sqrt(2. / n))
             elif isinstance(m, nn.BatchNorm2d):
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()
+
 
     def _make_layer(self, block, planes, blocks, stride=1, dilation=1):
         downsample = None
@@ -91,23 +95,30 @@ class ModifyResNet(nn.Module):
 
     def forward(self, x, mode='train'):
         x = self.conv1(x)
+        # print(1,x)
         x = self.bn1(x)
         x = self.relu(x)
         x = self.maxpool(x)
+
+        # print(2,x)
 
         x = self.layer1(x)
         x = self.layer2(x)
         x = self.layer3(x)
         x = self.layer4(x)
 
+        # print(3,x)
+
         # x = self.avgpool(x)
         # x = x.view(x.size(0), -1)
         # x = self.fc(x)
-        x = self.conv2(x)
+        x = self.myconv2(x)
         # temperal max pooling
+        # print(4,x)
         x = torch.max(x, dim=0, keepdim=True)[0]
         # print('x shape: ' + str(x.shape))
         # sigmoid activation
+        # print(5,x)
         x = self.sigmoid(x)
         if mode != 'test':
             x = self.spatialmaxpool(x)
@@ -182,15 +193,19 @@ class UNet(nn.Module):
         # Contracting Path
         conv1 = self.double_conv1(inputs)
         maxpool1 = self.maxpool1(conv1)
+        print(1, maxpool1)
 
         conv2 = self.double_conv2(maxpool1)
         maxpool2 = self.maxpool2(conv2)
+        print(2, maxpool2)
 
         conv3 = self.double_conv3(maxpool2)
         maxpool3 = self.maxpool3(conv3)
+        print(3, maxpool3)
 
         conv4 = self.double_conv4(maxpool3)
         # maxpool4 = self.maxpool4(conv4)
+        print(4, conv4)
 
         # Bottom
         # conv5 = self.double_conv5(maxpool4)
@@ -204,20 +219,25 @@ class UNet(nn.Module):
         t_conv3 = self.t_conv3(conv4)
         cat3 = torch.cat([conv3, t_conv3], 1)
         ex_conv3 = self.ex_double_conv3(cat3)
+        print(5, ex_conv3)
 
         t_conv2 = self.t_conv2(ex_conv3)
         cat2 = torch.cat([conv2, t_conv2], 1)
         ex_conv2 = self.ex_double_conv2(cat2)
+        print(6, ex_conv2)
 
         t_conv1 = self.t_conv1(ex_conv2)
         cat1 = torch.cat([conv1, t_conv1], 1)
         ex_conv1 = self.ex_double_conv1(cat1)
+        print(7, ex_conv1)
 
         one_by_one = self.one_by_one(ex_conv1)
         cat0 = torch.cat([one_by_one, inputs], 1)
         one_by_one = self.sum_of_one(cat0)
+        print(8, one_by_one)
 
         k_channels = self.finalconv(one_by_one)
+        print(9, k_channels)
 
         return k_channels
 
@@ -230,7 +250,9 @@ class Synthesizer(nn.Module):
 
     def forward(self, x):
         x = self.linear(x)
+        print(10, x)
         x = self.sigmoid(x)
+        print(11, x)
         return x
 
 
