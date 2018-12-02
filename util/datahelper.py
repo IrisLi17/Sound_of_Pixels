@@ -4,6 +4,8 @@ from pydub import AudioSegment
 import numpy as np
 import wave
 from random import randint, sample
+import torchvision.transforms as transforms
+import torch
 
 
 def convert_video(src, dst):
@@ -278,9 +280,29 @@ def sample_input(spec_dir, image_dir, phase, N=2, fraction=0.7):
     selected_frames = [sample(os.listdir(spec_cases_dirs[i]), 1) for i in range(N)]
     spec_frames_dirs = [os.path.join(spec_cases_dirs[i], selected_frames[i][0]) for i in range(N)]
     image_frames_dirs = [os.path.join(image_cases_dirs[i], selected_frames[i][0]) for i in range(N)]
-    spect_input = [np.absolute(np.load(spec_frames_dirs[i])) for i in range(N)]
-    for i in range(N):
-        spect_input[i] = spect_input[i][np.newaxis,:]
-    spect_input = np.stack([i for i in spect_input], axis=0)
-    image_input = np.stack([np.transpose(np.load(image_frames_dirs[i]), (0, 3, 1, 2)) for i in range(N)], axis=0)
+    try:
+        spect_input = [np.absolute(np.load(spec_frames_dirs[i])) for i in range(N)]
+        for i in range(N):
+            spect_input[i] = spect_input[i][np.newaxis, :]
+        spect_input = np.stack([i for i in spect_input], axis=0)
+        image_input = np.stack([np.transpose(np.load(image_frames_dirs[i]), (0, 3, 1, 2)) for i in range(N)], axis=0)
+    except:
+        return [None, None]
     return [spect_input, image_input]
+
+
+def image_normalization(image_input):
+    """
+    :param image_input: numpy array of size (N, num_of_frames, number_of_channels, height, width), which is (N, 3, 3, 224, 224)
+    :return:
+    """
+    normalize = torch.zeros(image_input.shape, dtype=torch.float64)
+    image_input = image_input / 255.0
+    # print('image input' + str(image_input))
+    for i in range(image_input.shape[0]):
+        for frame in range(image_input.shape[1]):
+            normalize[i,frame,:,:,:] = transforms.functional.normalize(torch.from_numpy(image_input[i, frame, :, :, :]),
+                                                                             mean=[0.485, 0.456, 0.406],
+                                                                             std=[0.229, 0.224, 0.225])
+    # print('normalized' + str(normalize))
+    return normalize
