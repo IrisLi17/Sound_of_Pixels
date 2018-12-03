@@ -6,6 +6,7 @@ import wave
 from random import randint, sample
 import torchvision.transforms as transforms
 import torch
+from librosa import amplitude_to_db
 
 
 def convert_video(src, dst):
@@ -272,7 +273,7 @@ def load_all_training_data(spec_dir, image_dir):
             case_dir = os.path.join(instru_dir, case)
             items = os.listdir(case_dir)
             for item in items:
-                temp = np.absolute(np.load(os.path.join(case_dir, item)))
+                temp = amplitude_to_db(np.absolute(np.load(os.path.join(case_dir, item))),ref=np.max)
                 temp = temp[np.newaxis, :]
                 spec_data[instru][case].append(temp)
     image_data = {}
