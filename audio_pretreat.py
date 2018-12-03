@@ -20,8 +20,9 @@ HOP_LENGTH = 256
 frequencies = np.linspace(SAMPLE_RATE/2/512,SAMPLE_RATE/2,512)
 log_freq = np.log10(frequencies)
 sample_freq = np.linspace(log_freq[0],log_freq[-1],256)
-sample_index = [np.abs(log_freq-x).argmin() for x in sample_freq]
+sample_index = np.array([np.abs(log_freq-x).argmin() for x in sample_freq])
 # prepare for log resample
+sample_index2 =np.array(np.linspace(0,510,256)).astype(int)
 
 if os.path.exists(NEW_DIR) == False:
 	os.mkdir(NEW_DIR)
