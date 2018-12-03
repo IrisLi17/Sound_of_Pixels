@@ -260,6 +260,56 @@ def load_data_from_video(VideoName, audio_datafile, frequency):
     return npvideos, npaudios
 
 
+def load_all_training_data(spec_dir, image_dir):
+    spec_data = {}
+    instruments = os.listdir(spec_dir)
+    for instru in instruments:
+        spec_data[instru] = {}
+        instru_dir = os.path.join(spec_dir, instru)
+        cases = os.listdir(instru_dir)
+        for case in cases:
+            spec_data[instru][case] = []
+            case_dir = os.path.join(instru_dir, case)
+            items = os.listdir(case_dir)
+            for item in items:
+                temp = np.absolute(np.load(os.path.join(case_dir, item)))
+                temp = temp[np.newaxis, :]
+                spec_data[instru][case].append(temp)
+    image_data = {}
+    instruments = os.listdir(image_dir)
+    for instru in instruments:
+        image_data[instru] = {}
+        instru_dir = os.path.join(image_dir, instru)
+        cases = os.listdir(instru_dir)
+        for case in cases:
+            image_data[instru][case] = []
+            case_dir = os.path.join(instru_dir, case)
+            items = os.listdir(case_dir)
+            for item in items:
+                image_data[instru][case].append(np.transpose(np.load(os.path.join(case_dir, item)), (0, 3, 1, 2)))
+    print(spec_data['accordion']['1'][0].shape)
+    print(image_data['accordion']['1'][0].shape)
+    return [spec_data, image_data]
+
+
+def sample_from_dict(spec_data, image_data, N=2):
+    sampled_spec = []
+    sampled_image = []
+    instru_idx = sample(spec_data.keys(), N)
+    for instru in instru_idx:
+        case_idx = sample(spec_data[instru].keys(), 1)
+        case = case_idx[0]
+        item_idx = sample(range(min(len(spec_data[instru][case]), len(image_data[instru][case]))), 1)
+        item = item_idx[0]
+        sampled_spec.append(spec_data[instru][case][item])
+        sampled_image.append(image_data[instru][case][item])
+    sampled_spec = np.stack(sampled_spec, axis=0)
+    sampled_image = np.stack(sampled_image, axis=0)
+    # print(sampled_spec.shape)
+    # print(sampled_image.shape)
+    return [sampled_spec, sampled_image]
+
+
 def sample_input(spec_dir, image_dir, phase, N=2, fraction=0.7):
     assert len(os.listdir(spec_dir)) == len(os.listdir(image_dir))
     selected_instruments = sample(os.listdir(spec_dir), N)
@@ -296,13 +346,14 @@ def image_normalization(image_input):
     :param image_input: numpy array of size (N, num_of_frames, number_of_channels, height, width), which is (N, 3, 3, 224, 224)
     :return:
     """
-    normalize = torch.zeros(image_input.shape, dtype=torch.float64)
+    normalize = torch.zeros(image_input.shape, dtype=torch.float32)
     image_input = image_input / 255.0
     # print('image input' + str(image_input))
     for i in range(image_input.shape[0]):
         for frame in range(image_input.shape[1]):
-            normalize[i,frame,:,:,:] = transforms.functional.normalize(torch.from_numpy(image_input[i, frame, :, :, :]),
-                                                                             mean=[0.485, 0.456, 0.406],
-                                                                             std=[0.229, 0.224, 0.225])
+            normalize[i, frame, :, :, :] = transforms.functional.normalize(
+                torch.from_numpy(image_input[i, frame, :, :, :]),
+                mean=[0.485, 0.456, 0.406],
+                std=[0.229, 0.224, 0.225])
     # print('normalized' + str(normalize))
     return normalize

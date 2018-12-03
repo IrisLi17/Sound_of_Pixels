@@ -1,5 +1,5 @@
 from models.models import modifyresnet18, UNet7, synthesizer
-from util.datahelper import sample_input, image_normalization
+from util.datahelper import sample_input, image_normalization, load_all_training_data, sample_from_dict
 from util.metrics import compute_validation
 from util.waveoperate import mask2wave
 import itertools
@@ -15,11 +15,12 @@ import matplotlib.pyplot as plt
 
 def mix_spect_input(spect_input):
     # temp = np.sum(spect_input, axis=0)
-     # return temp[np.newaxis, :]
-     return np.sum(spect_input, axis=0, keepdims=True)
+    # return temp[np.newaxis, :]
+    return np.sum(spect_input, axis=0, keepdims=True)
 
 
-def train1step(video_net, audio_net, syn_net, image_input, spect_input, N=2, validate=False):
+def train1step(video_net, audio_net, syn_net, video_optimizer, audio_optimizer, syn_optimizer, image_input, spect_input,
+               device, N=2, validate=False):
     """
     :param video_net: modified resnet18,
     :param audio_net: modified unet7,
@@ -46,12 +47,12 @@ def train1step(video_net, audio_net, syn_net, image_input, spect_input, N=2, val
     # loss = torch.zeros(N, dtype=torch.float64)
     total_loss = None
     estimated_spects = torch.zeros((N, 1, 256, 256))
-    video_optimizer = optim.SGD(video_net.parameters(), lr=0.0001, momentum=0.9)
-    audio_optimizer = optim.SGD(audio_net.parameters(), lr=0.001, momentum=0.9)
-    syn_optimizer = optim.SGD(syn_net.parameters(), lr=0.001, momentum=0.9)
+    # video_optimizer = optim.SGD(video_net.parameters(), lr=0.0001, momentum=0.9)
+    # audio_optimizer = optim.SGD(audio_net.parameters(), lr=0.001, momentum=0.9)
+    # syn_optimizer = optim.SGD(syn_net.parameters(), lr=0.001, momentum=0.9)
 
-    image_input = image_normalization(image_input).float()
-    synspect_input = torch.from_numpy(synspect_input).float()
+    image_input = image_normalization(image_input).to(device)
+    synspect_input = torch.from_numpy(synspect_input).to(device)
     # forward audio
     out_audio_net = audio_net.forward(synspect_input)  # size 1,K,256,256
     # print('out audio feature' + str(out_audio_net))
@@ -59,7 +60,7 @@ def train1step(video_net, audio_net, syn_net, image_input, spect_input, N=2, val
     for i in range(N):
         # forward video
         out_video_net = video_net.forward(image_input[i, :, :, :, :])  # size (1, K, 1, 1)
-        # print('video feature ' + str(i) + str(out_video_net))
+        # print('video feature ' + str(i) + str(out_video_net[0,:,0,0]))
         # forward synthesizer
         temp = out_video_net * out_audio_net
         temp = torch.transpose(temp, 1, 2)
@@ -70,8 +71,8 @@ def train1step(video_net, audio_net, syn_net, image_input, spect_input, N=2, val
         syn_act_flat = syn_act.view(-1)
         # print('synethesizer out '+str(i)+str(syn_act_flat))
         # label
-        mask_truth = (dominant_idx == i).astype('float64')
-        label_flat = torch.from_numpy(mask_truth.ravel()).float()
+        mask_truth = (dominant_idx == i).astype('float32')
+        label_flat = torch.from_numpy(mask_truth.ravel()).to(device)
         # cross entropy loss
         if total_loss is None:
             total_loss = nn.functional.binary_cross_entropy(syn_act_flat, label_flat)
@@ -96,6 +97,20 @@ def train1step(video_net, audio_net, syn_net, image_input, spect_input, N=2, val
     # print(total_loss.grad_fn.next_functions[0][0])
     # print(total_loss.grad_fn.next_functions[0][0].next_functions[0][0])
     total_loss.backward()
+    # print(list(audio_net.one_by_one.named_parameters())[0][1].grad)
+    # print(2, list(audio_net.ex_double_conv2.named_parameters())[0][1].grad)
+    # print(3, list(audio_net.ex_double_conv3.named_parameters())[0][1].grad)
+    # print(4, list(audio_net.ex_double_conv4.named_parameters())[0][1].grad)
+    # print(5, list(audio_net.ex_double_conv5.named_parameters())[0][1].grad)
+    # print(6, list(audio_net.ex_double_conv6.named_parameters())[0][1].grad)
+    # print(7, list(audio_net.double_conv7.named_parameters())[0][1].grad)
+    # print(6, list(audio_net.double_conv6.named_parameters())[0][1].grad)
+    # print(5, list(audio_net.double_conv5.named_parameters())[0][1].grad)
+    # print(4, list(audio_net.double_conv4.named_parameters())[0][1].grad)
+    # print('v', list(video_net.myconv2.named_parameters())[0][1].grad)
+    # print('v2', list(video_net.layer2.named_parameters())[0][1].grad)
+    # print('v1', list(video_net.layer1.named_parameters())[0][1].grad)
+    # print(list(syn_net.linear.named_parameters())[0][1].grad)
     video_optimizer.step()
     audio_optimizer.step()
     syn_optimizer.step()
@@ -111,9 +126,12 @@ def train1step(video_net, audio_net, syn_net, image_input, spect_input, N=2, val
         # plt.imshow(estimated_spects.detach().numpy()[1,0,:,:])
         # plt.subplot(2,2,4)
         # plt.imshow((dominant_idx == 1).astype('float64')[0,:,:])
-        return [total_loss.detach().numpy(), estimated_spects.detach().numpy()]
+        # plt.figure()
+        # plt.imshow(synspect_input.detach().numpy()[0,0,:,:])
+        # plt.show()
+        return [total_loss.detach().cpu().numpy(), estimated_spects.detach().cpu().numpy()]
     else:
-        return total_loss.detach().numpy()
+        return total_loss.detach().cpu().numpy()
 
 
 def eval1step(video_net, audio_net, syn_net, image_input, spect_input):
@@ -150,48 +168,68 @@ SPEC_DIR = '/data/liyunfei/dataset/audio_spectrums'
 IMAGE_DIR = '/data/liyunfei/dataset/video_3frames'
 
 
-def train_all(spec_dir, image_dir, num_epoch=10, validate_freq=100, log_freq=10, log_dir=None, model_dir=None):
-    video_net = modifyresnet18()
-    audio_net = UNet7()
-    syn_net = synthesizer()
+def train_all(spec_dir, image_dir, num_epoch=10, validate_freq=10000, log_freq=100, log_dir=None, model_dir=None):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    video_net = modifyresnet18().to(device)
+    audio_net = UNet7().to(device)
+    syn_net = synthesizer().to(device)
+    # video_optimizer = optim.SGD(video_net.parameters(), lr=0.0001, momentum=0.9)
+    myconv_params = list(map(id, video_net.myconv2.parameters()))
+    base_params = filter(lambda p: id(p) not in myconv_params,
+                         video_net.parameters())
+    video_optimizer = torch.optim.SGD([
+        {'params': base_params},
+        {'params': video_net.myconv2.parameters(), 'lr': 0.001},
+    ], lr=0.0001, momentum=0.9)
+    audio_optimizer = optim.SGD(audio_net.parameters(), lr=0.001, momentum=0.9)
+    syn_optimizer = optim.SGD(syn_net.parameters(), lr=0.001, momentum=0.9)
+    [spec_data, image_data] = load_all_training_data(spec_dir, image_dir)
+    print('Data loaded!')
     # video_net.parameters()
     phases = ['train', 'validate', 'test']
     for epoch in range(num_epoch):
         total_loss = 0.0
         count = 0
         for t in itertools.count():
-            if t > 5000:
+            if t > 50000:
                 break
             if t % validate_freq == 0:
-                [spect_input, image_input] = sample_input(spec_dir, image_dir, 'validate')
+                # [spect_input, image_input] = sample_input(spec_dir, image_dir, 'validate')
+                [spect_input, image_input] = sample_from_dict(spec_data, image_data)
                 if not (spect_input is None or image_input is None):
-                    [loss, estimated_spects] = train1step(video_net, audio_net, syn_net, image_input, spect_input,
-                                                          validate=True)
+                    [loss, estimated_spects] = train1step(video_net, audio_net, syn_net, video_optimizer,
+                                                          audio_optimizer, syn_optimizer, image_input, spect_input,
+                                                          device, validate=True)
                     total_loss += loss
                     count += 1
                     # convert spects to wav
                     wav_input = np.stack([mask2wave(spect_input[i, 0, :, :]) for i in range(spect_input.shape[0])],
                                          axis=0)  # N, nsample
-                    wav_mixed = np.reshape(mask2wave(mix_spect_input(spect_input)),(1,-1)) # 1, nsample
+                    wav_mixed = np.reshape(mask2wave(mix_spect_input(spect_input)), (1, -1))  # 1, nsample
                     wav_estimated = np.stack(
-                        [mask2wave(estimated_spects[i, 0, :, :]) for i in range(estimated_spects.shape[0])], axis=0)  # N, nsample
+                        [mask2wave(estimated_spects[i, 0, :, :]) for i in range(estimated_spects.shape[0])],
+                        axis=0)  # N, nsample
                     # print('wav input shape: ' + str(wav_input.shape))
                     # print('wav mixed shape: ' + str(wav_mixed.shape))
                     # print('wav estimated shape: ' + str(wav_estimated.shape))
                     [nsdr, sir, sar] = compute_validation(wav_input, wav_estimated, wav_mixed)
             else:
-                [spect_input, image_input] = sample_input(spec_dir, image_dir, 'train')
+                # [spect_input, image_input] = sample_input(spec_dir, image_dir, 'train')
+                [spect_input, image_input] = sample_from_dict(spec_data, image_data)
                 if not (spect_input is None or image_input is None):
-                    total_loss += train1step(video_net, audio_net, syn_net, image_input, spect_input, validate=False)
+                    total_loss += train1step(video_net, audio_net, syn_net, video_optimizer, audio_optimizer,
+                                             syn_optimizer, image_input, spect_input, device,
+                                             validate=False)
                     count += 1
             if t % log_freq == 0:
                 print("epoch %d" % epoch)
                 print("steps %d" % t)
                 print("average loss %f" % (total_loss / count))
                 if t % validate_freq == 0:
-                    print("nsdr %f, %f" % (nsdr[0], nsdr[1]))
-                    print("sir %f, %f" % (sir[0], sir[1]))
-                    print("sar %f, %f" % (sar[0], sar[1]))
+                    if not (nsdr is None or sir is None or sar is None):
+                        print("nsdr %f, %f" % (nsdr[0], nsdr[1]))
+                        print("sir %f, %f" % (sir[0], sir[1]))
+                        print("sar %f, %f" % (sar[0], sar[1]))
                 sys.stdout.flush()
                 if not os.path.exists(os.path.join(log_dir, 'log.csv')):
                     os.mkdir(log_dir)
@@ -203,7 +241,7 @@ def train_all(spec_dir, image_dir, num_epoch=10, validate_freq=100, log_freq=10,
                 with open(os.path.join(log_dir, 'log.csv'), 'a', newline='') as csvfile:
                     spamwriter = csv.writer(csvfile, delimiter=',',
                                             quotechar=',', quoting=csv.QUOTE_MINIMAL)
-                    if t % validate_freq == 0:
+                    if t % validate_freq == 0 and not (nsdr is None or sir is None or sar is None):
                         data = [epoch, t, total_loss / count, nsdr[0], nsdr[1], sir[0], sir[1], sar[0], sar[1]]
                     else:
                         data = [epoch, t, total_loss / count, None, None, None, None, None, None]
