@@ -14,8 +14,8 @@ def compute_validation(reference_sources, estimated_sources, reference_mixed_sou
     try:
         mir_eval.separation.validate(reference_sources,estimated_sources)
         mir_eval.separation.validate(mixed_source, reference_sources)
+        [sdr, sir, sar, _] = mir_eval.separation.bss_eval_sources(reference_sources, estimated_sources)
+        [sdr_raw, _, _, _] = mir_eval.separation.bss_eval_sources(mixed_source, reference_sources)
+        return [sdr / sdr_raw, sir, sar]
     except:
         return [None, None, None]
-    [sdr, sir, sar, _] = mir_eval.separation.bss_eval_sources(reference_sources, estimated_sources)
-    [sdr_raw, _, _, _] = mir_eval.separation.bss_eval_sources(mixed_source, reference_sources)
-    return [sdr / sdr_raw, sir, sar]
