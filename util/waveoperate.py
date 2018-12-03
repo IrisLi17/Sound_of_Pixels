@@ -2,15 +2,20 @@ import numpy as np
 import librosa
 
 
-def mask2wave(mask_stft, WINDOW_SIZE=1022, HOP_LENGTH=256, FREQ_LENGTH=512, SAMPLE_RATE=11000):
+def mask2wave(mask_stft, WINDOW_SIZE=1022, HOP_LENGTH=256, FREQ_LENGTH=512, SAMPLE_RATE=11000,type):
     frequencies = np.linspace(SAMPLE_RATE / 2 / FREQ_LENGTH, SAMPLE_RATE / 2, FREQ_LENGTH)
     log_freq = np.log10(frequencies)
     sample_freq = np.linspace(log_freq[0], log_freq[-1], 256)
-    sample_index = [np.abs(log_freq - x).argmin() for x in sample_freq]
+    sample_index = np.array([np.abs(log_freq - x).argmin() for x in sample_freq])
+    sample_index2 = np.array(np.linspace(0,510,256)).astype(int)
 
     result_stft = np.zeros([FREQ_LENGTH, HOP_LENGTH], dtype=complex)
     # print(result_stft.shape)
-    result_stft[sample_index, :] = mask_stft
+    if type == 'log':
+        result_stft[sample_index, :] = mask_stft
+    elif type == 'linear':
+        result_stft[sample_index2,:] = mask_stft
+
     has_value = np.zeros([FREQ_LENGTH], dtype=int)
     has_value[sample_index] = 1
 
