@@ -205,7 +205,7 @@ def train_all(spec_dir, image_dir, num_epoch=10, batch_size=1, N=2, validate_fre
                 break
             if t % validate_freq == 0:
                 # [spect_input, image_input] = sample_input(spec_dir, image_dir, 'validate')
-                image_input = np.zeros((N, 3*batch_size, 3, 256, 256), dtype='float32')
+                image_input = np.zeros((N, 3*batch_size, 3, 224, 224), dtype='float32')
                 _spect_input = []
                 for bidx in range(batch_size):
                     [spect_input_mini, image_input_mini] = sample_from_dict(spec_data, image_data)
@@ -237,7 +237,7 @@ def train_all(spec_dir, image_dir, num_epoch=10, batch_size=1, N=2, validate_fre
                     [nsdr, sir, sar] = compute_validation(wav_input, wav_estimated, wav_mixed)
             else:
                 # [spect_input, image_input] = sample_input(spec_dir, image_dir, 'train')
-                image_input = np.zeros((N, 3 * batch_size, 3, 256, 256), dtype='float32')
+                image_input = np.zeros((N, 3 * batch_size, 3, 224, 224), dtype='float32')
                 _spect_input = []
                 for bidx in range(batch_size):
                     [spect_input_mini, image_input_mini] = sample_from_dict(spec_data, image_data)
