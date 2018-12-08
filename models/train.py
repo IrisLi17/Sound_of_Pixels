@@ -43,7 +43,7 @@ def train1step(video_net, audio_net, syn_net, video_optimizer, audio_optimizer, 
     # S_mix = \sum_i {S_i} / N
     synspect_input = mix_spect_input(spect_input)  # batch_size, 1, 256, 256
     # useful definitions
-    dominant_idx = np.argmax(spect_input, axis=0) # batch_size, 1, 256, 256
+    dominant_idx = np.argmax(spect_input, axis=0)  # batch_size, 1, 256, 256
     # loss = torch.zeros(N, dtype=torch.float64)
     total_loss = None
     estimated_spects = torch.zeros((N, 1, 256, 256))
@@ -168,13 +168,15 @@ SPEC_DIR = '/data/liyunfei/dataset/audio_spectrums'
 IMAGE_DIR = '/data/liyunfei/dataset/video_3frames'
 
 
-def train_all(spec_dir, image_dir, num_epoch=10, batch_size=1, N=2, validate_freq=10000, log_freq=100, log_dir=None, model_dir=None):
+def train_all(spec_dir, image_dir, num_epoch=10, batch_size=1, N=2, validate_freq=10000, log_freq=100, log_dir=None,
+              model_dir=None):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     video_net = modifyresnet18(batch_size).to(device)
     audio_net = UNet7().to(device)
     syn_net = synthesizer().to(device)
     if os.path.exists(os.path.join(model_dir, 'video_net_params.pkl')) and os.path.exists(
-            os.path.join(model_dir, 'audio_net_params.pkl')) and os.path.exists(os.path.join(model_dir, 'syn_net_params.pkl')):
+            os.path.join(model_dir, 'audio_net_params.pkl')) and os.path.exists(
+        os.path.join(model_dir, 'syn_net_params.pkl')):
         print('load params!')
         video_net.load_state_dict(torch.load(os.path.join(model_dir, 'video_net_params.pkl')))
         video_net.eval()
@@ -205,14 +207,15 @@ def train_all(spec_dir, image_dir, num_epoch=10, batch_size=1, N=2, validate_fre
                 break
             if t % validate_freq == 0:
                 # [spect_input, image_input] = sample_input(spec_dir, image_dir, 'validate')
-                image_input = np.zeros((N, 3*batch_size, 3, 224, 224), dtype='float32')
+                image_input = np.zeros((N, 3 * batch_size, 3, 224, 224), dtype='float32')
                 _spect_input = []
                 for bidx in range(batch_size):
                     [spect_input_mini, image_input_mini] = sample_from_dict(spec_data, image_data)
                     _spect_input.append(spect_input_mini)
                     # _image_input.append(image_input_mini)
-                    image_input[:, 3*bidx:3*bidx+3, :,:,:] = image_input_mini
-                spect_input = np.transpose(np.stack(_spect_input, axis=0), (1,0,2,3)) # expect shape (N, batch_size, 1, 256, 256)
+                    image_input[:, 3 * bidx:3 * bidx + 3, :, :, :] = image_input_mini
+                spect_input = np.transpose(np.stack(_spect_input, axis=0),
+                                           (1, 0, 2, 3, 4))  # expect shape (N, batch_size, 1, 256, 256)
                 print('spect_input shape', spect_input.shape)
                 print('image input shape', image_input.shape)
                 if not (spect_input is None or image_input is None):
@@ -245,7 +248,7 @@ def train_all(spec_dir, image_dir, num_epoch=10, batch_size=1, N=2, validate_fre
                     # _image_input.append(image_input_mini)
                     image_input[:, 3 * bidx:3 * bidx + 3, :, :, :] = image_input_mini
                 spect_input = np.transpose(np.stack(_spect_input, axis=0),
-                                           (1, 0, 2, 3))  # expect shape (N, batch_size, 1, 256, 256)
+                                           (1, 0, 2, 3, 4))  # expect shape (N, batch_size, 1, 256, 256)
                 print('spect_input shape', spect_input.shape)
                 print('image input shape', image_input.shape)
                 if not (spect_input is None or image_input is None):
