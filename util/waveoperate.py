@@ -2,7 +2,7 @@ import numpy as np
 import librosa
 
 
-def mask2wave(mask_stft, WINDOW_SIZE=1022, HOP_LENGTH=256, FREQ_LENGTH=512, SAMPLE_RATE=11000,type):
+def mask2wave(mask_stft, type, WINDOW_SIZE=1022, HOP_LENGTH=256, FREQ_LENGTH=512, SAMPLE_RATE=11000):
     frequencies = np.linspace(SAMPLE_RATE / 2 / FREQ_LENGTH, SAMPLE_RATE / 2, FREQ_LENGTH)
     log_freq = np.log10(frequencies)
     sample_freq = np.linspace(log_freq[0], log_freq[-1], 256)

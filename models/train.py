@@ -173,6 +173,15 @@ def train_all(spec_dir, image_dir, num_epoch=10, validate_freq=10000, log_freq=1
     video_net = modifyresnet18().to(device)
     audio_net = UNet7().to(device)
     syn_net = synthesizer().to(device)
+    if os.path.exists(os.path.join(model_dir, 'video_net_params.pkl')) and os.path.exists(
+            os.path.join(model_dir, 'audio_net_params.pkl')) and os.path.exists(os.path.join(model_dir, 'syn_net_params.pkl')):
+        video_net.load_state_dict(torch.load(os.path.join(model_dir, 'video_net_params.pkl')))
+        video_net.eval()
+        audio_net.load_state_dict(torch.load(os.path.join(model_dir, 'audio_net_params.pkl')))
+        audio_net.eval()
+        syn_net.load_state_dict(torch.load(os.path.join(model_dir, 'syn_net_params.pkl')))
+        syn_net.eval()
+
     # video_optimizer = optim.SGD(video_net.parameters(), lr=0.0001, momentum=0.9)
     myconv_params = list(map(id, video_net.myconv2.parameters()))
     base_params = filter(lambda p: id(p) not in myconv_params,
@@ -203,11 +212,14 @@ def train_all(spec_dir, image_dir, num_epoch=10, validate_freq=10000, log_freq=1
                     total_loss += loss
                     count += 1
                     # convert spects to wav
-                    wav_input = np.stack([mask2wave(spect_input[i, 0, :, :]) for i in range(spect_input.shape[0])],
-                                         axis=0)  # N, nsample
-                    wav_mixed = np.reshape(mask2wave(mix_spect_input(spect_input)), (1, -1))  # 1, nsample
+                    wav_input = np.stack(
+                        [mask2wave(spect_input[i, 0, :, :], type='linear') for i in range(spect_input.shape[0])],
+                        axis=0)  # N, nsample
+                    wav_mixed = np.reshape(mask2wave(mix_spect_input(spect_input), type='linear'),
+                                           (1, -1))  # 1, nsample
                     wav_estimated = np.stack(
-                        [mask2wave(estimated_spects[i, 0, :, :]) for i in range(estimated_spects.shape[0])],
+                        [mask2wave(estimated_spects[i, 0, :, :], type='linear') for i in
+                         range(estimated_spects.shape[0])],
                         axis=0)  # N, nsample
                     # print('wav input shape: ' + str(wav_input.shape))
                     # print('wav mixed shape: ' + str(wav_mixed.shape))
