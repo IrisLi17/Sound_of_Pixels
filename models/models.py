@@ -116,7 +116,7 @@ class ModifyResNet(nn.Module):
         x = self.myconv2(x)
         # temperal max pooling
         # print('myconv2', x)
-        x = torch.stack([torch.max(x[3*idx:3*idx+3,:,:,:], dim=0) for idx in range(self.batch_size)])
+        x = torch.stack([torch.max(x[3*idx:3*idx+3,:,:,:], dim=0)[0] for idx in range(self.batch_size)])
         # x = torch.max(x, dim=0, keepdim=True)[0]
         # print('x shape: ' + str(x.shape))
         # sigmoid activation
