@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 def mix_spect_input(spect_input):
     # temp = np.sum(spect_input, axis=0)
     # return temp[np.newaxis, :]
-    return np.sum(spect_input, axis=0, keepdims=True)
+    return np.sum(spect_input, axis=0)
 
 
 def train1step(video_net, audio_net, syn_net, video_optimizer, audio_optimizer, syn_optimizer, image_input, spect_input,
@@ -25,8 +25,8 @@ def train1step(video_net, audio_net, syn_net, video_optimizer, audio_optimizer, 
     :param video_net: modified resnet18,
     :param audio_net: modified unet7,
     :param syn_net: a linear layer,
-    :param image_input: numpy array of size (N, number_of_frames, number_of_channels, height, width), which is (N, 3, 3, 224, 224) in this project
-    :param spect_input: numpy array of size (N, 1, 256, 256)
+    :param image_input: numpy array of size (N, number_of_frames * batch_size, number_of_channels, height, width), which is (N, 3, 3, 224, 224) in this project
+    :param spect_input: numpy array of size (N, batch_size, 1, 256, 256)
     :param N: how many videos are mixed, default to 2
     :return total_loss: computed cross entropy loss
     """
@@ -41,9 +41,9 @@ def train1step(video_net, audio_net, syn_net, video_optimizer, audio_optimizer, 
     # spect_input = np.random.rand(N, 1, 256, 256)
 
     # S_mix = \sum_i {S_i} / N
-    synspect_input = mix_spect_input(spect_input)  # 1, 1, 256, 256
+    synspect_input = mix_spect_input(spect_input)  # batch_size, 1, 256, 256
     # useful definitions
-    dominant_idx = np.argmax(spect_input, axis=0)
+    dominant_idx = np.argmax(spect_input, axis=0) # batch_size, 1, 256, 256
     # loss = torch.zeros(N, dtype=torch.float64)
     total_loss = None
     estimated_spects = torch.zeros((N, 1, 256, 256))
@@ -54,12 +54,12 @@ def train1step(video_net, audio_net, syn_net, video_optimizer, audio_optimizer, 
     image_input = image_normalization(image_input).to(device)
     synspect_input = torch.from_numpy(synspect_input).to(device)
     # forward audio
-    out_audio_net = audio_net.forward(synspect_input)  # size 1,K,256,256
+    out_audio_net = audio_net.forward(synspect_input)  # size batch_size,K,256,256
     # print('out audio feature' + str(out_audio_net))
 
     for i in range(N):
         # forward video
-        out_video_net = video_net.forward(image_input[i, :, :, :, :])  # size (1, K, 1, 1)
+        out_video_net = video_net.forward(image_input[i, :, :, :, :])  # size (batch_size, K, 1, 1)
         # print('video feature ' + str(i) + str(out_video_net[0,:,0,0]))
         # forward synthesizer
         temp = out_video_net * out_audio_net
@@ -67,7 +67,7 @@ def train1step(video_net, audio_net, syn_net, video_optimizer, audio_optimizer, 
         temp = torch.transpose(temp, 2, 3)
         syn_act = syn_net.forward(temp)  # sigmoid logits
         syn_act = torch.transpose(syn_act, 2, 3)
-        syn_act = torch.transpose(syn_act, 1, 2)  # 1, 1, 256, 256
+        syn_act = torch.transpose(syn_act, 1, 2)  # batch_size, 1, 256, 256
         syn_act_flat = syn_act.view(-1)
         # print('synethesizer out '+str(i)+str(syn_act_flat))
         # label
@@ -82,7 +82,7 @@ def train1step(video_net, audio_net, syn_net, video_optimizer, audio_optimizer, 
         # loss[i] = torch.sum(-label_flat * torch.log(syn_act_flat)-(1-label_flat) * torch.log(1- syn_act_flat))
         # print('synspect input size'+str(synspect_input.shape))
         # print('syn act size'+str(syn_act.shape))
-        estimated_spects[i, :, :, :] = (synspect_input * syn_act)[0, :, :, :]
+        estimated_spects[i, :, :, :] = synspect_input * syn_act
     # print(image_input[0,0,0,:,:])
     # plt.figure()
     # plt.subplot(1,2,1)
@@ -168,13 +168,14 @@ SPEC_DIR = '/data/liyunfei/dataset/audio_spectrums'
 IMAGE_DIR = '/data/liyunfei/dataset/video_3frames'
 
 
-def train_all(spec_dir, image_dir, num_epoch=10, validate_freq=10000, log_freq=100, log_dir=None, model_dir=None):
+def train_all(spec_dir, image_dir, num_epoch=10, batch_size=1, N=2, validate_freq=10000, log_freq=100, log_dir=None, model_dir=None):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    video_net = modifyresnet18().to(device)
+    video_net = modifyresnet18(batch_size).to(device)
     audio_net = UNet7().to(device)
     syn_net = synthesizer().to(device)
     if os.path.exists(os.path.join(model_dir, 'video_net_params.pkl')) and os.path.exists(
             os.path.join(model_dir, 'audio_net_params.pkl')) and os.path.exists(os.path.join(model_dir, 'syn_net_params.pkl')):
+        print('load params!')
         video_net.load_state_dict(torch.load(os.path.join(model_dir, 'video_net_params.pkl')))
         video_net.eval()
         audio_net.load_state_dict(torch.load(os.path.join(model_dir, 'audio_net_params.pkl')))
@@ -204,7 +205,16 @@ def train_all(spec_dir, image_dir, num_epoch=10, validate_freq=10000, log_freq=1
                 break
             if t % validate_freq == 0:
                 # [spect_input, image_input] = sample_input(spec_dir, image_dir, 'validate')
-                [spect_input, image_input] = sample_from_dict(spec_data, image_data)
+                image_input = np.zeros((N, 3*batch_size, 3, 256, 256), dtype='float32')
+                _spect_input = []
+                for bidx in range(batch_size):
+                    [spect_input_mini, image_input_mini] = sample_from_dict(spec_data, image_data)
+                    _spect_input.append(spect_input_mini)
+                    # _image_input.append(image_input_mini)
+                    image_input[:, 3*bidx:3*bidx+3, :,:,:] = image_input_mini
+                spect_input = np.transpose(np.stack(_spect_input, axis=0), (1,0,2,3)) # expect shape (N, batch_size, 1, 256, 256)
+                print('spect_input shape', spect_input.shape)
+                print('image input shape', image_input.shape)
                 if not (spect_input is None or image_input is None):
                     [loss, estimated_spects] = train1step(video_net, audio_net, syn_net, video_optimizer,
                                                           audio_optimizer, syn_optimizer, image_input, spect_input,
@@ -227,7 +237,17 @@ def train_all(spec_dir, image_dir, num_epoch=10, validate_freq=10000, log_freq=1
                     [nsdr, sir, sar] = compute_validation(wav_input, wav_estimated, wav_mixed)
             else:
                 # [spect_input, image_input] = sample_input(spec_dir, image_dir, 'train')
-                [spect_input, image_input] = sample_from_dict(spec_data, image_data)
+                image_input = np.zeros((N, 3 * batch_size, 3, 256, 256), dtype='float32')
+                _spect_input = []
+                for bidx in range(batch_size):
+                    [spect_input_mini, image_input_mini] = sample_from_dict(spec_data, image_data)
+                    _spect_input.append(spect_input_mini)
+                    # _image_input.append(image_input_mini)
+                    image_input[:, 3 * bidx:3 * bidx + 3, :, :, :] = image_input_mini
+                spect_input = np.transpose(np.stack(_spect_input, axis=0),
+                                           (1, 0, 2, 3))  # expect shape (N, batch_size, 1, 256, 256)
+                print('spect_input shape', spect_input.shape)
+                print('image input shape', image_input.shape)
                 if not (spect_input is None or image_input is None):
                     total_loss += train1step(video_net, audio_net, syn_net, video_optimizer, audio_optimizer,
                                              syn_optimizer, image_input, spect_input, device,

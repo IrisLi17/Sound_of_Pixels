@@ -19,10 +19,10 @@ def main():
     # plt.subplot(2,1,2)
     # plt.imshow(video[101,:,:,:])
     # plt.show()
-    SPEC_DIR = '/data/liyunfei/dataset/audio_spectrums'
-    IMAGE_DIR = '/data/liyunfei/dataset/video_3frames'
-    log_dir = os.path.join('/data/liyunfei/dataset/log', datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S"))
-    train_all(SPEC_DIR, IMAGE_DIR, log_dir=log_dir, model_dir='/data/liyunfei/dataset/model')
+    SPEC_DIR = '../audio_spectrums_linear'
+    IMAGE_DIR = '../video_3frames'
+    log_dir = os.path.join('../log', datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S"))
+    train_all(SPEC_DIR, IMAGE_DIR, batch_size=4, log_dir=log_dir, model_dir='../model')
 
 
 if __name__ == '__main__':

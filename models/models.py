@@ -44,9 +44,10 @@ class BasicBlock(nn.Module):
 
 
 class ModifyResNet(nn.Module):
-    def __init__(self, block, layers):
+    def __init__(self, block, layers, batch_size):
         self.inplanes = 64
         self.kchannels = 16
+        self.batch_size = batch_size
         super(ModifyResNet, self).__init__()
         self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
                                bias=False)
@@ -115,7 +116,8 @@ class ModifyResNet(nn.Module):
         x = self.myconv2(x)
         # temperal max pooling
         # print('myconv2', x)
-        x = torch.max(x, dim=0, keepdim=True)[0]
+        x = torch.stack([torch.max(x[3*idx:3*idx+3,:,:,:], dim=0) for idx in range(self.batch_size)])
+        # x = torch.max(x, dim=0, keepdim=True)[0]
         # print('x shape: ' + str(x.shape))
         # sigmoid activation
         # print(5,x)
@@ -295,9 +297,9 @@ class Synthesizer(nn.Module):
         return x
 
 
-def modifyresnet18():
+def modifyresnet18(batch_size=1):
     resnet18 = v_models.resnet18(pretrained=True)
-    net = ModifyResNet(BasicBlock, [2, 2, 2, 2])
+    net = ModifyResNet(BasicBlock, [2, 2, 2, 2], batch_size)
     pretrained_dict = resnet18.state_dict()
     modified_dict = net.state_dict()
     pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in modified_dict}
