@@ -46,7 +46,7 @@ def train1step(video_net, audio_net, syn_net, video_optimizer, audio_optimizer, 
     dominant_idx = np.argmax(spect_input, axis=0)  # batch_size, 1, 256, 256
     # loss = torch.zeros(N, dtype=torch.float64)
     total_loss = None
-    estimated_spects = torch.zeros((N, 1, 256, 256))
+    estimated_spects = torch.zeros((N, video_net.batch_size, 1, 256, 256))
     # video_optimizer = optim.SGD(video_net.parameters(), lr=0.0001, momentum=0.9)
     # audio_optimizer = optim.SGD(audio_net.parameters(), lr=0.001, momentum=0.9)
     # syn_optimizer = optim.SGD(syn_net.parameters(), lr=0.001, momentum=0.9)
@@ -82,7 +82,7 @@ def train1step(video_net, audio_net, syn_net, video_optimizer, audio_optimizer, 
         # loss[i] = torch.sum(-label_flat * torch.log(syn_act_flat)-(1-label_flat) * torch.log(1- syn_act_flat))
         # print('synspect input size'+str(synspect_input.shape))
         # print('syn act size'+str(syn_act.shape))
-        estimated_spects[i, :, :, :] = synspect_input * syn_act
+        estimated_spects[i, :, :, :, :] = synspect_input * syn_act
     # print(image_input[0,0,0,:,:])
     # plt.figure()
     # plt.subplot(1,2,1)
