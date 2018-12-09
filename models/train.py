@@ -189,10 +189,11 @@ def train_all(spec_dir, image_dir, num_epoch=10, batch_size=1, N=2, validate_fre
     myconv_params = list(map(id, video_net.myconv2.parameters()))
     base_params = filter(lambda p: id(p) not in myconv_params,
                          video_net.parameters())
-    video_optimizer = torch.optim.SGD([
-        {'params': base_params},
-        {'params': video_net.myconv2.parameters(), 'lr': 0.001},
-    ], lr=0.0001, momentum=0.9)
+    # video_optimizer = torch.optim.SGD([
+    #     {'params': base_params},
+    #     {'params': video_net.myconv2.parameters(), 'lr': 0.001},
+    # ], lr=0.0001, momentum=0.9)
+    video_optimizer = optim.SGD(myconv_params, lr=0.001, momentum=0.9)
     audio_optimizer = optim.SGD(audio_net.parameters(), lr=0.001, momentum=0.9)
     syn_optimizer = optim.SGD(syn_net.parameters(), lr=0.001, momentum=0.9)
     [spec_data, image_data] = load_all_training_data(spec_dir, image_dir)
@@ -226,12 +227,12 @@ def train_all(spec_dir, image_dir, num_epoch=10, batch_size=1, N=2, validate_fre
                     count += 1
                     # convert spects to wav
                     wav_input = np.stack(
-                        [mask2wave(spect_input[i, 0, :, :], type='linear') for i in range(spect_input.shape[0])],
+                        [mask2wave(spect_input[i, 0, 0, :, :], type='linear') for i in range(spect_input.shape[0])],
                         axis=0)  # N, nsample
-                    wav_mixed = np.reshape(mask2wave(mix_spect_input(spect_input), type='linear'),
+                    wav_mixed = np.reshape(mask2wave(mix_spect_input(spect_input)[0,0,:,:], type='linear'),
                                            (1, -1))  # 1, nsample
                     wav_estimated = np.stack(
-                        [mask2wave(estimated_spects[i, 0, :, :], type='linear') for i in
+                        [mask2wave(estimated_spects[i, 0, 0, :, :], type='linear') for i in
                          range(estimated_spects.shape[0])],
                         axis=0)  # N, nsample
                     # print('wav input shape: ' + str(wav_input.shape))
