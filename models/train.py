@@ -220,8 +220,8 @@ def train_all(spec_dir, image_dir, num_epoch=10, batch_size=1, N=2, validate_fre
                     image_input = np.zeros((N, 3 * batch_size, 3, 224, 224), dtype='float32')
                     _spect_input = []
                     for bidx in range(batch_size):
-                        [spect_input_mini, image_input_mini] = sample_from_dict(spec_data, image_data)
-                        _spect_input.append(amplitude_to_db(np.absolute(spect_input_mini), ref=np.max))
+                        [spect_input_comp, image_input_mini] = sample_from_dict(spec_data, image_data)
+                        _spect_input.append(amplitude_to_db(np.absolute(spect_input_comp), ref=np.max))
                         # _image_input.append(image_input_mini)
                         image_input[:, 3 * bidx:3 * bidx + 3, :, :, :] = image_input_mini
                     spect_input = np.transpose(np.stack(_spect_input, axis=0),
@@ -229,25 +229,29 @@ def train_all(spec_dir, image_dir, num_epoch=10, batch_size=1, N=2, validate_fre
                     # print('spect_input shape', spect_input.shape)
                     # print('image input shape', image_input.shape)
                     if not (spect_input is None or image_input is None):
-                        [loss, estimated_spects] = train1step(video_net, audio_net, syn_net, video_optimizer,
+                        [loss, estimated_spects, ground_truth] = train1step(video_net, audio_net, syn_net, video_optimizer,
                                                               audio_optimizer, syn_optimizer, image_input, spect_input,
                                                               device, validate=True)
                         total_loss += loss
                         count += 1
                         # convert spects to wav
-                        wav_input = np.stack(
-                            [mask2wave(spect_input[i, 0, 0, :, :], type='linear') for i in range(spect_input.shape[0])],
+                        mixed_spect = mix_spect_input(spect_input_comp)[0, :, :]
+                        wav_input_ground = np.stack(
+                            [mask2wave(spect_input_comp[i, 0, :, :], type='linear') for i in
+                             range(spect_input_comp.shape[0])],
                             axis=0)  # N, nsample
-                        wav_mixed = np.reshape(mask2wave(mix_spect_input(spect_input)[0, 0, :, :], type='linear'),
+                        wav_input_cal = np.stack([mask2wave(ground_truth[i, :, :] * mixed_spect, type='linear') for i in
+                                                  range(ground_truth.shape[0])], axis=0)
+                        wav_mixed = np.reshape(mask2wave(mixed_spect, type='linear'),
                                                (1, -1))  # 1, nsample
                         wav_estimated = np.stack(
-                            [mask2wave(estimated_spects[i, 0, 0, :, :], type='linear') for i in
+                            [mask2wave(estimated_spects[i, 0, 0, :, :] * mixed_spect, type='linear') for i in
                              range(estimated_spects.shape[0])],
                             axis=0)  # N, nsample
                         # print('wav input shape: ' + str(wav_input.shape))
                         # print('wav mixed shape: ' + str(wav_mixed.shape))
                         # print('wav estimated shape: ' + str(wav_estimated.shape))
-                        [nsdr, sir, sar] = compute_validation(wav_input, wav_estimated, wav_mixed)
+                        [nsdr, sir, sar] = compute_validation(wav_input_ground, wav_estimated, wav_mixed)
                 else:
                     # [spect_input, image_input] = sample_input(spec_dir, image_dir, 'train')
                     image_input = np.zeros((N, 3 * batch_size, 3, 224, 224), dtype='float32')
