@@ -44,12 +44,15 @@ class BasicBlock(nn.Module):
 
 
 class ModifyResNet(nn.Module):
-    def __init__(self, block, layers):
+    def __init__(self, block, layers, batch_size):
         self.inplanes = 64
         self.kchannels = 16
+        self.batch_size = batch_size
         super(ModifyResNet, self).__init__()
         self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
                                bias=False)
+        # for param in self.conv1.parameters():
+        #     param.requires_grad_(False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -57,6 +60,8 @@ class ModifyResNet(nn.Module):
         self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
         self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
         self.layer4 = self._make_layer(block, 512, layers[3], stride=1, dilation=2)
+        for param in self.parameters():
+            param.requires_grad_(False)
         # self.avgpool = nn.AvgPool2d(7, stride=1)
         # self.fc = nn.Linear(512 * block.expansion, num_classes)
         # add a conv layer according to the sound of pixel
@@ -115,7 +120,8 @@ class ModifyResNet(nn.Module):
         x = self.myconv2(x)
         # temperal max pooling
         # print('myconv2', x)
-        x = torch.max(x, dim=0, keepdim=True)[0]
+        x = torch.stack([torch.max(x[3*idx:3*idx+3,:,:,:], dim=0)[0] for idx in range(self.batch_size)])
+        # x = torch.max(x, dim=0, keepdim=True)[0]
         # print('x shape: ' + str(x.shape))
         # sigmoid activation
         # print(5,x)
@@ -295,9 +301,9 @@ class Synthesizer(nn.Module):
         return x
 
 
-def modifyresnet18():
+def modifyresnet18(batch_size=1):
     resnet18 = v_models.resnet18(pretrained=True)
-    net = ModifyResNet(BasicBlock, [2, 2, 2, 2])
+    net = ModifyResNet(BasicBlock, [2, 2, 2, 2], batch_size)
     pretrained_dict = resnet18.state_dict()
     modified_dict = net.state_dict()
     pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in modified_dict}
