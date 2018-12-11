@@ -13,11 +13,12 @@ def mask2wave(mask_stft, type, WINDOW_SIZE=1022, HOP_LENGTH=256, FREQ_LENGTH=512
     # print(result_stft.shape)
     if type == 'log':
         result_stft[sample_index, :] = mask_stft
+        has_value = np.zeros([FREQ_LENGTH], dtype=int)
+        has_value[sample_index] = 1
     elif type == 'linear':
         result_stft[sample_index2,:] = mask_stft
-
-    has_value = np.zeros([FREQ_LENGTH], dtype=int)
-    has_value[sample_index] = 1
+        has_value = np.zeros([FREQ_LENGTH], dtype=int)
+        has_value[sample_index2] = 1
 
     result_stft = upsample(result_stft, has_value)
     result_wave = librosa.istft(result_stft, hop_length=HOP_LENGTH, center=False)
@@ -40,6 +41,6 @@ def upsample(data, binary_index, method='neighbor_average'):
                         if binary_index[j] == 1:
                             data2 = data[j, :]
                             break
-                    data[idx, :] = (data1 + data2) / 2
+                    data[idx, :] = -(data1 + data2) / 2
                     binary_index[idx] = 1
         return data
