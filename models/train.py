@@ -273,14 +273,14 @@ def train_all(spec_dir, image_dir, num_epoch=10, batch_size=1, N=2, validate_fre
                     image_input = np.zeros((N, 3 * batch_size, 3, 224, 224), dtype='float32')
                     _spect_input = []
                     for bidx in range(batch_size):
-                        [spect_input_mini, image_input_mini] = sample_from_dict(spec_data, image_data)
-                        _spect_input.append(spect_input_mini)
+                        [spect_input_comp, image_input_mini] = sample_from_dict(spec_data, image_data)
+                        _spect_input.append(amplitude_to_db(np.absolute(spect_input_comp), ref=np.max))
                         # _image_input.append(image_input_mini)
                         image_input[:, 3 * bidx:3 * bidx + 3, :, :, :] = image_input_mini
                     spect_input = np.transpose(np.stack(_spect_input, axis=0),
                                                (1, 0, 2, 3, 4))  # expect shape (N, batch_size, 1, 256, 256)
-                    print('spect_input shape', spect_input.shape)
-                    print('image input shape', image_input.shape)
+                    # print('spect_input shape', spect_input.shape)
+                    # print('image input shape', image_input.shape)
                     if not (spect_input is None or image_input is None):
                         total_loss += train1step(video_net, audio_net, syn_net, video_optimizer, audio_optimizer,
                                                  syn_optimizer, image_input, spect_input, device,
