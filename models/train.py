@@ -84,7 +84,7 @@ def train1step(video_net, audio_net, syn_net, video_optimizer, audio_optimizer, 
         # loss[i] = torch.sum(-label_flat * torch.log(syn_act_flat)-(1-label_flat) * torch.log(1- syn_act_flat))
         # print('synspect input size'+str(synspect_input.shape))
         # print('syn act size'+str(syn_act.shape))
-        estimated_spects[i, :, :, :, :] = synspect_input * syn_act
+        # estimated_spects[i, :, :, :, :] = synspect_input * syn_act
         estimated_spects[i, :, :, :, :] = syn_act
     # print(image_input[0,0,0,:,:])
     # plt.figure()
@@ -137,21 +137,35 @@ def train1step(video_net, audio_net, syn_net, video_optimizer, audio_optimizer, 
         return [total_loss.detach().cpu().numpy(), estimated_spects.detach().cpu().numpy(), ground_truth]
 
 
-def eval1step(video_net, audio_net, syn_net, image_input, spect_input):
+def test1step(video_net, audio_net, syn_net, image_input, spect_input, device):
     """
     :param video_net:
     :param audio_net:
     :param syn_net:
-    :param image_input: only one branch of images (maybe solo is prefered?) size: (1,3,3,224,224)
-    :param spect_input: corresponding spectrogram (in solo case, that is the spectogram of mixed audio) size:(1,1,256,256)
+    :param image_input: only one branch of images (duet); size: (1, number_of_frames * batch_size, number_of_channels, height, width)
+    :param spect_input: corresponding duet spectrogram; size: (1, batch_size, 1, 256, 256)
     :return:
     """
-    image_input = torch.from_numpy(image_input).float()
-    synspect_input = torch.from_numpy(spect_input).float()
+    image_input = image_input[0, :, :, :, :]
+    image_input = image_normalization(image_input).to(device)
+    synspect_input = spect_input[0, :, :, :, :]
+    synspect_input = torch.from_numpy(synspect_input).to(device)
     # forward audio
-    out_audio_net = audio_net.forward(synspect_input)  # size 1,K,256,256
+    out_audio_net = audio_net.forward(synspect_input)  # size batch_size,K,256,256
     # forward video, get pixel level features
-    out_video_net = video_net.forward(image_input, mode='eval')
+    out_video_net = video_net.forward(image_input, mode='test')  # size batch_size, K, 14, 14
+    estimated_spects = torch.zeros((video_net.batch_size, out_video_net.shape[-2], out_video_net.shape[-1], 1,
+                                    spect_input.shape[-2], spect_input.shape[-1]))
+    for idx1 in range(out_video_net.shape[-2]):
+        for idx2 in range(out_video_net.shape[-1]):
+            temp = out_video_net[:, :, idx1, idx2] * out_audio_net
+            temp = torch.transpose(temp, 1, 2)
+            temp = torch.transpose(temp, 2, 3)
+            syn_act = syn_net.forward(temp)  # sigmoid logits
+            syn_act = torch.transpose(syn_act, 2, 3)
+            syn_act = torch.transpose(syn_act, 1, 2)  # batch_size, 1, 256, 256
+            estimated_spects[:, idx1, idx2, :, :, :] = syn_act
+    return estimated_spects.detach().cpu().numpy()
 
 
 def test_train1step():
@@ -229,9 +243,11 @@ def train_all(spec_dir, image_dir, num_epoch=10, batch_size=1, N=2, validate_fre
                     # print('spect_input shape', spect_input.shape)
                     # print('image input shape', image_input.shape)
                     if not (spect_input is None or image_input is None):
-                        [loss, estimated_spects, ground_truth] = train1step(video_net, audio_net, syn_net, video_optimizer,
-                                                              audio_optimizer, syn_optimizer, image_input, spect_input,
-                                                              device, validate=True)
+                        [loss, estimated_spects, ground_truth] = train1step(video_net, audio_net, syn_net,
+                                                                            video_optimizer,
+                                                                            audio_optimizer, syn_optimizer, image_input,
+                                                                            spect_input,
+                                                                            device, validate=True)
                         total_loss += loss
                         count += 1
                         # convert spects to wav
@@ -367,7 +383,7 @@ def train_all(spec_dir, image_dir, num_epoch=10, batch_size=1, N=2, validate_fre
                 [mask2wave(spect_input_comp[i, 0, :, :], type='linear') for i in range(spect_input_comp.shape[0])],
                 axis=0)  # N, nsample
             wav_input_cal = np.stack([mask2wave(ground_truth[i, :, :] * mixed_spect, type='linear') for i in
-                                         range(ground_truth.shape[0])], axis=0)
+                                      range(ground_truth.shape[0])], axis=0)
             wav_mixed = np.reshape(mask2wave(mixed_spect, type='linear'),
                                    (1, -1))  # 1, nsample
             wav_estimated = np.stack(
@@ -376,10 +392,25 @@ def train_all(spec_dir, image_dir, num_epoch=10, batch_size=1, N=2, validate_fre
                 axis=0)  # N, nsample
             fs = 11000
             for i in range(2):
-                write_wav('input_cal1'+str(i)+'.wav', wav_input_cal[i, :], fs)
-                write_wav('input_ground'+str(i)+'.wav', wav_input_ground[i, :], fs)
-                write_wav('estimated'+str(i)+'.wav', wav_estimated[i, :], fs)
+                write_wav('input_cal1' + str(i) + '.wav', wav_input_cal[i, :], fs)
+                write_wav('input_ground' + str(i) + '.wav', wav_input_ground[i, :], fs)
+                write_wav('estimated' + str(i) + '.wav', wav_estimated[i, :], fs)
             write_wav('mixed.wav', wav_mixed[0, :], fs)
+
+
+def test_all(spect_dir, image_dir, batch_size=1, log_dir=None, model_dir=None):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    video_net = modifyresnet18(batch_size).to(device)
+    audio_net = UNet7().to(device)
+    syn_net = synthesizer().to(device)
+    assert os.path.exists(os.path.join(model_dir, 'video_net_params.pkl'))
+    assert os.path.exists(os.path.join(model_dir, 'audio_net_params.pkl'))
+    assert os.path.exists(os.path.join(model_dir, 'syn_net_params.pkl'))
+    video_net.load_state_dict(torch.load(os.path.join(model_dir, 'video_net_params.pkl')))
+    audio_net.load_state_dict(torch.load(os.path.join(model_dir, 'audio_net_params.pkl')))
+    syn_net.load_state_dict(torch.load(os.path.join(model_dir, 'syn_net_params.pkl')))
+    # TODO load testing data and call `test1step`
+
 
 if __name__ == '__main__':
     test_train1step()
