@@ -1,5 +1,5 @@
 from models.models import modifyresnet18, UNet7, synthesizer
-from util.datahelper import sample_input, image_normalization, load_all_training_data, sample_from_dict
+from util.datahelper import sample_input, image_normalization, load_all_training_data, sample_from_dict , load_test_data
 from util.metrics import compute_validation
 from util.waveoperate import mask2wave
 import itertools
@@ -11,8 +11,11 @@ import os
 import sys
 import csv
 import matplotlib.pyplot as plt
+import librosa
+import math
 from librosa import amplitude_to_db
 from librosa.output import write_wav
+from sklearn.cluster import KMeans
 
 
 def mix_spect_input(spect_input):
@@ -146,19 +149,22 @@ def test1step(video_net, audio_net, syn_net, image_input, spect_input, device):
     :param spect_input: corresponding duet spectrogram; size: (1, batch_size, 1, 256, 256)
     :return:
     """
-    image_input = image_input[0, :, :, :, :]
+    # image_input = image_input[0, :, :, :, :]
     image_input = image_normalization(image_input).to(device)
     synspect_input = spect_input[0, :, :, :, :]
     synspect_input = torch.from_numpy(synspect_input).to(device)
     # forward audio
     out_audio_net = audio_net.forward(synspect_input)  # size batch_size,K,256,256
     # forward video, get pixel level features
-    out_video_net = video_net.forward(image_input, mode='test')  # size batch_size, K, 14, 14
+    out_video_net = video_net.forward(image_input[0,:,:,:,:], mode='test')  # size batch_size, K, 14, 14
     estimated_spects = torch.zeros((video_net.batch_size, out_video_net.shape[-2], out_video_net.shape[-1], 1,
                                     spect_input.shape[-2], spect_input.shape[-1]))
     for idx1 in range(out_video_net.shape[-2]):
         for idx2 in range(out_video_net.shape[-1]):
-            temp = out_video_net[:, :, idx1, idx2] * out_audio_net
+            temp = out_video_net[:, :, idx1, idx2]
+            temp = temp[:,:,np.newaxis,np.newaxis]
+            # print(temp.shape,out_audio_net.shape)
+            temp = temp * out_audio_net            
             temp = torch.transpose(temp, 1, 2)
             temp = torch.transpose(temp, 2, 3)
             syn_act = syn_net.forward(temp)  # sigmoid logits
@@ -274,8 +280,7 @@ def train_all(spec_dir, image_dir, num_epoch=10, batch_size=1, N=2, validate_fre
                     _spect_input = []
                     for bidx in range(batch_size):
                         [spect_input_comp, image_input_mini] = sample_from_dict(spec_data, image_data)
-                        spect_input_mini = amplitude_to_db(np.absolute(spect_input_comp), ref=np.max)
-                        _spect_input.append(spect_input_mini)
+                        _spect_input.append(amplitude_to_db(np.absolute(spect_input_comp), ref=np.max))
                         # _image_input.append(image_input_mini)
                         image_input[:, 3 * bidx:3 * bidx + 3, :, :, :] = image_input_mini
                     spect_input = np.transpose(np.stack(_spect_input, axis=0),
@@ -399,11 +404,12 @@ def train_all(spec_dir, image_dir, num_epoch=10, batch_size=1, N=2, validate_fre
             write_wav('mixed.wav', wav_mixed[0, :], fs)
 
 
-def test_all(spect_dir, image_dir, batch_size=1, log_dir=None, model_dir=None):
+def test_all(video_dir, audio_dir, result_dir, batch_size=1, log_dir=None, model_dir=None):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     video_net = modifyresnet18(batch_size).to(device)
     audio_net = UNet7().to(device)
     syn_net = synthesizer().to(device)
+    clust_estimator = KMeans(n_clusters=3)
     assert os.path.exists(os.path.join(model_dir, 'video_net_params.pkl'))
     assert os.path.exists(os.path.join(model_dir, 'audio_net_params.pkl'))
     assert os.path.exists(os.path.join(model_dir, 'syn_net_params.pkl'))
@@ -411,6 +417,79 @@ def test_all(spect_dir, image_dir, batch_size=1, log_dir=None, model_dir=None):
     audio_net.load_state_dict(torch.load(os.path.join(model_dir, 'audio_net_params.pkl')))
     syn_net.load_state_dict(torch.load(os.path.join(model_dir, 'syn_net_params.pkl')))
     # TODO load testing data and call `test1step`
+    video_net.eval()
+    audio_net.eval()
+    syn_net.eval()
+    [video_dic, audio_dic] = load_test_data(video_dir, audio_dir)
+    if(len(video_dic.keys())==len(audio_dic.keys())):
+        instruments = video_dic.keys()
+    else:
+        print("different number of instruments in video and audio!")
+        print(len(video_dic.keys()))
+        print(len(audio_dic.keys()))
+        return
+    for instru in instruments:
+        if(len(video_dic[instru].keys())==len(audio_dic[instru].keys())):
+            cases = video_dic[instru].keys()
+        else:
+            print("different number of cases in instrument " + str(instru)+'!')
+            print(len(video_dic[instru].keys()))
+            print(len(audio_dic[instru].keys()))
+            return
+        for case in cases:
+            if(len(video_dic[instru][case])==len(audio_dic[instru][case[0:-4]+'.wav'])):
+                case_length = len(video_dic[instru][case])
+            else:
+                print("different number of blocks in instrument " + str(instru)+" case"+str(case)+'!')
+                print(len(video_dic[instru][case]))
+                print(len(audio_dic[instru][case[0:-4]+'.wav']))
+                return
+            destination1 = os.path.join(result_dir,str(instru) +'-'+str(case)+'-1.wav')
+            destination2 = os.path.join(result_dir,str(instru) +'-'+str(case)+'-2.wav')
+            wave1 = np.array([])
+            wave2 = np.array([])
+            wave_sets = []
+            print(cases)
+            origin_wave,_ =librosa.load(os.path.join(audio_dir,instru,case[0:-4]+'.wav'),sr=11000)
+            for n in range(0,case_length):
+                video_input = video_dic[instru][case][n]
+                audio_input = audio_dic[instru][case[0:-4]+'.wav'][n]
+                # print("video input",video_input.shape)
+                # print("audio input",audio_input.shape)
+                print(n,case_length)
+                estimated_spects = test1step(video_net,audio_net,syn_net,video_input,
+                                            amplitude_to_db(np.absolute(audio_input),ref = np.max),
+                                            device)        
+                if n == 0:       
+                    for idx1 in range(estimated_spects.shape[1]):
+                        for idx2 in range(estimated_spects.shape[2]):
+                            wave_sets.append(mask2wave(estimated_spects[0,idx1,idx2,0,:,:] * audio_input,'linear'))
+                else:
+                    for idx1 in range(estimated_spects.shape[1]):
+                        for idx2 in range(estimated_spects.shape[2]):
+                            wave_sets[idx1*estimated_spects.shape[1]+idx2] = np.append(
+                                            wave_sets[idx1*estimated_spects.shape[1]+idx2],
+                                            mask2wave(estimated_spects[0,idx1,idx2,0,:,:] * audio_input,'linear'))
+            wave_sets = np.array(wave_sets)
+            print("waveset",wave_sets.shape)
+            BLOCK_LENGTH = 66302
+            length = math.floor(len(origin_wave)/BLOCK_LENGTH)*BLOCK_LENGTH
+            wave_sets = np.insert(wave_sets,0,origin_wave[0:length],0)
+            print("waveset",wave_sets.shape)
+            clust_estimator.fit(wave_sets)
+            '''
+            for idx1 in range(estimated_spects.shape[1]):
+                for idx2 in range(estimated_spects.shape[2]):
+                    write_wav(os.path.join('./test',str(idx1)+'-'+str(idx2)+'.wav'),wave_sets[idx1*estimated_spects.shape[1]+idx2,:],11000) 
+            '''
+            labels = clust_estimator.labels_
+
+            print(labels)
+                
+            with open('label.txt','w') as file:
+               file.write(str(labels))
+
+            exit()
 
 
 if __name__ == '__main__':
