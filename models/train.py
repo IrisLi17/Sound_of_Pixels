@@ -1,5 +1,5 @@
 from models.models import modifyresnet18, UNet7, synthesizer
-from util.datahelper import sample_input, image_normalization, load_all_training_data, sample_from_dict
+from util.datahelper import sample_input, image_normalization, load_all_training_data, sample_from_dict , load_test_data
 from util.metrics import compute_validation
 from util.waveoperate import mask2wave
 import itertools
@@ -398,7 +398,7 @@ def train_all(spec_dir, image_dir, num_epoch=10, batch_size=1, N=2, validate_fre
             write_wav('mixed.wav', wav_mixed[0, :], fs)
 
 
-def test_all(spect_dir, image_dir, batch_size=1, log_dir=None, model_dir=None):
+def test_all(audio_dir, video_dir, result_dir, batch_size=1, log_dir=None, model_dir=None):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     video_net = modifyresnet18(batch_size).to(device)
     audio_net = UNet7().to(device)
@@ -410,6 +410,48 @@ def test_all(spect_dir, image_dir, batch_size=1, log_dir=None, model_dir=None):
     audio_net.load_state_dict(torch.load(os.path.join(model_dir, 'audio_net_params.pkl')))
     syn_net.load_state_dict(torch.load(os.path.join(model_dir, 'syn_net_params.pkl')))
     # TODO load testing data and call `test1step`
+    video_net.eval()
+    audio_net.eval()
+    syn_net.eval()
+    [video_dic, audio_dic] = load_test_data(audio_dir, video_dir)
+    if(len(video_dic.keys())==len(audio_dic.keys())):
+        instruments = video_dic.keys()
+    else:
+        print("different number of instruments in video and audio!")
+        print(len(video_dic.keys()))
+        print(len(audio_dic.keys()))
+        return
+    for instru in instruments:
+        if(len(video_dic[instru].keys())==len(audio_dic[instru].keys())):
+            cases = video_dic[instru].keys()
+        else:
+            print("different number of cases in instrument " + str(instru)+'!')
+            print(len(video_dic[instru].keys()))
+            print(len(audio_dic[instru].keys()))
+            return
+        for case in cases:
+            if(len(video_dic[instru][case])==len(audio_dic[instru][case]):
+                case_length = len(video_dic[instru][case])
+            else:
+                print("different number of blocks in instrument " + str(instru)+" case"+str(case)+'!')
+                print(len(video_dic[instru][case]))
+                print(len(audio_dic[instru][case]))
+                return
+            destination1 = os.path.join(result_dir,str(instru) +'-'+str(case)+'-1.wav')
+            destination2 = os.path.join(result_dir,str(instru) +'-'+str(case)+'-2.wav')
+            wave1 = np.array([])
+            wave2 = np.array([])
+            for n in range(0,case_length):
+                video_input = video_dic[instru][case][n]
+                audio_input = audio_dic[instru][case][n]
+                print(video_input.shape)
+                print(audio_input.shape)
+                estimated_spects = test1step(video_net,audio_net,syn_net,video_input,audio_input,device)
+                wave_sets = np.array([])
+                for idx1 in range(estimated_spects.shape[1]):
+                    for idx2 in range(estimated_spects.shape[2]):
+                        wave_sets = np.append(wave_sets,
+                                    mask2wave(estimated_spects[0,idx1,idx2,0,:,:],'linear'))
 
 
 if __name__ == '__main__':

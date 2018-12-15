@@ -7,6 +7,7 @@ from random import randint, sample
 import torchvision.transforms as transforms
 import torch
 from librosa import amplitude_to_db
+import math
 
 
 def convert_video(src, dst):
@@ -48,7 +49,8 @@ def read_video_fordir(dirname, savedir1, savedir, fre):
             if (ret == 0):
                 break
             if (c % fre == 0):
-                cv2.imwrite(os.path.join(savedir, name1, "%06d" % d + '.jpg'), frame)
+                cv2.imwrite(os.path.join(savedir, name1, "%06d" %
+                                         d + '.jpg'), frame)
                 d = d + 1
             c = c + 1
             k = cv2.waitKey(20)
@@ -80,7 +82,8 @@ def read_video(dirname, savedir1, savedir, fre, vidno):
                 if (ret == 0):
                     break
                 if (c % fre == 0):
-                    cv2.imwrite(os.path.join(savedir, name1, "%06d" % d + '.jpg'), frame)
+                    cv2.imwrite(os.path.join(savedir, name1,
+                                             "%06d" % d + '.jpg'), frame)
                     d = d + 1
                 c = c + 1
                 k = cv2.waitKey(20)
@@ -200,7 +203,8 @@ def load_data(image_data_dir, audio_datafile, hasnpy=False, npypath=""):
         imgs_name = os.listdir(os.path.join(image_data_dir, _label_dir))
         imgs_name.sort()
         for img_name in imgs_name:
-            im_ar = cv2.imread(os.path.join(image_data_dir, _label_dir, img_name))
+            im_ar = cv2.imread(os.path.join(
+                image_data_dir, _label_dir, img_name))
             im_ar = cv2.cvtColor(im_ar, cv2.COLOR_BGR2RGB)
             im_ar = np.asarray(im_ar)
             im_ar = preprocess(im_ar)
@@ -261,6 +265,99 @@ def load_data_from_video(VideoName, audio_datafile, frequency):
     return npvideos, npaudios
 
 
+def load_test_data(videodir, adiodir, BLOCK_LENGTH = 66302, WINDOW_SIZE = 1022,
+                    HOP_LENGTH = 256, SAMPLE_RATE=11000, FPS=24, fstype='linear'):
+    """
+    :videodir: the location where video file locates
+    :audiodir: the location where audio file locates
+    :BLOCK_LENGTH: the number of sample points a block of wave have
+                   default 66302 makes the block about 6s under sr of 11kHz
+    :SAMPLE_RATE: sample rate of audio 
+    :WINDOW_SIZE: window size of stft
+    :HOP_LENGTH: hop length of stft
+    :FPS: frame per second of video
+    :fstype: the type when sample frequencies after stft
+             accept 'linear' or 'log'
+    """
+    # batchsize = 1
+    video_data = {}
+    audio_data = {}
+    BLOCK_TIME = BLOCK_LENGTH/SAMPLE_RATE
+    BLOCK_LENGTH = math.floor(BLOCK_TIME*FPS)
+    FRAME_INDEX = [0, math.floor((BLOCK_LENGTH-1)/2), BLOCK_LENGTH-1]
+    instruments = os.listdir(videodir)
+    for instru in instruments:
+        video_data[instru] = {}
+        instru_dir = os.path.join(videodir, instru)
+        cases = os.listdir(instru_dir)
+        for case in cases:
+            video_data[instru][case] = []
+            case_dir = os.path.join(instru_dir, case)
+            items = os.listdir(case_dir)
+            for item in items:
+                # temp = amplitude_to_db(np.absolute(np.load(os.path.join(case_dir, item))),ref=np.max)
+                temp = np.load(os.path.join(case_dir, item))
+                cap = cv2.VideoCapture(videodir)
+                frameCount = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                frameWidth = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                frameHeight = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                block_num = math.floor(frameCount/BLOCK_LENGTH)
+                buf = np.empty((frameCount, frameHeight, frameWidth, 3), np.dtype('uint8'))
+                fc = 0
+                ret = True
+                while (fc < frameCount and ret):
+                    ret, buf[fc] = cap.read()
+                    fc += 1
+                cap.release()
+                for i in range(block_num):
+                    temp = buf[i*BLOCK_LENGTH:(i+1)*BLOCK_LENGTH, :, :, :]
+                    result = temp[FRAME_INDEX, :, :, :]
+                    final = np.empty((len(FRAME_INDEX), 224, 224, 3),np.dtype('uint8'))
+                    for p in range(0, len(FRAME_INDEX)):
+                        final[p, :, :, :] = cv2.resize(result[p, :, :, :], (224, 224))
+                        final = np.transpose(final,(0,3,1,2))
+                        final = final[np.newaxis,:]
+                        video_data[instru][case].append(final)
+
+    frequencies = np.linspace(SAMPLE_RATE/2/512,SAMPLE_RATE/2,512)
+    log_freq = np.log10(frequencies)
+    ample_freq = np.linspace(log_freq[0],log_freq[-1],256)
+    sample_index = np.array([np.abs(log_freq-x).argmin() for x in sample_freq])
+    # prepare for log resample
+    sample_index2 =np.array(np.linspace(0,510,256)).astype(int)
+
+    instruments = os.listdir(audiodir)
+    for instru in instruments:
+        audio_data[instru] = {}
+        instru_dir = os.path.join(audiodir, instru)
+        cases = os.listdir(instru_dir)
+        for case in cases:
+            audio_data[instru][case] = []
+            case_dir = os.path.join(instru_dir, case)
+            items = os.listdir(case_dir)
+            for item in items:
+                w,_ = librosa.load(audiodir,sr=SAMPLE_RATE)
+                block_num = math.floor(len(w)/BLOCK_LENGTH)
+                for i in range(block_num):
+                    # select the wave data
+                    data = w[i*BLOCK_LENGTH:(i+1)*BLOCK_LENGTH]
+                    # STFT
+                    stft_data = librosa.stft(data,n_fft = WINDOW_SIZE,hop_length = HOP_LENGTH,center = False)
+                    # log scale resample
+                    if fstype == 'log':
+                        stft_data = stft_data[sample_index,:]
+                    elif fstype == 'linear':
+                        stft_data = stft_data[sample_index2,:]
+                    # print(stft_data.shape)
+                    # save data
+                    stft_data = stft_data[np,newaxis,np.newaxis,np.newaxis, :]
+                    audio_data[instru][case].append(stft_data)
+
+    return [video_data,audio_data]
+
+    
+
+
 def load_all_training_data(spec_dir, image_dir):
     spec_data = {}
     instruments = os.listdir(spec_dir)
@@ -288,7 +385,8 @@ def load_all_training_data(spec_dir, image_dir):
             case_dir = os.path.join(instru_dir, case)
             items = os.listdir(case_dir)
             for item in items:
-                image_data[instru][case].append(np.transpose(np.load(os.path.join(case_dir, item)), (0, 3, 1, 2)))
+                image_data[instru][case].append(np.transpose(
+                    np.load(os.path.join(case_dir, item)), (0, 3, 1, 2)))
     print(spec_data['accordion']['1'][0].shape)
     print(image_data['accordion']['1'][0].shape)
     return [spec_data, image_data]
@@ -301,7 +399,8 @@ def sample_from_dict(spec_data, image_data, N=2):
     for instru in instru_idx:
         case_idx = sample(spec_data[instru].keys(), 1)
         case = case_idx[0]
-        item_idx = sample(range(min(len(spec_data[instru][case]), len(image_data[instru][case]))), 1)
+        item_idx = sample(
+            range(min(len(spec_data[instru][case]), len(image_data[instru][case]))), 1)
         item = item_idx[0]
         sampled_spec.append(spec_data[instru][case][item])
         sampled_image.append(image_data[instru][case][item])
@@ -315,9 +414,12 @@ def sample_from_dict(spec_data, image_data, N=2):
 def sample_input(spec_dir, image_dir, phase, N=2, fraction=0.7):
     assert len(os.listdir(spec_dir)) == len(os.listdir(image_dir))
     selected_instruments = sample(os.listdir(spec_dir), N)
-    selected_spec_dirs = [os.path.join(spec_dir, i) for i in selected_instruments]
-    selected_image_dirs = [os.path.join(image_dir, i) for i in selected_instruments]
-    assert (len(os.listdir(selected_spec_dirs[i])) == len(os.listdir(selected_image_dirs[i])) for i in range(N))
+    selected_spec_dirs = [os.path.join(spec_dir, i)
+                          for i in selected_instruments]
+    selected_image_dirs = [os.path.join(image_dir, i)
+                           for i in selected_instruments]
+    assert (len(os.listdir(selected_spec_dirs[i])) == len(
+        os.listdir(selected_image_dirs[i])) for i in range(N))
     num_cases = [len(os.listdir(selected_spec_dirs[i])) for i in range(N)]
     if phase == 'train':
         selected_cases = [sample(os.listdir(selected_spec_dirs[i])[0:int(fraction * num_cases[i])], 1) for i in
@@ -326,18 +428,26 @@ def sample_input(spec_dir, image_dir, phase, N=2, fraction=0.7):
         selected_cases = [sample(os.listdir(selected_spec_dirs[i])[int(fraction * num_cases[i]):], 1) for i in
                           range(N)]  # len: N
     # print(selected_cases)
-    spec_cases_dirs = [os.path.join(selected_spec_dirs[i], selected_cases[i][0]) for i in range(N)]
-    image_cases_dirs = [os.path.join(selected_image_dirs[i], selected_cases[i][0]) for i in range(N)]
-    assert (len(os.listdir(spec_cases_dirs[i])) == len(os.listdir(image_cases_dirs[i])) for i in range(N))
-    selected_frames = [sample(os.listdir(spec_cases_dirs[i]), 1) for i in range(N)]
-    spec_frames_dirs = [os.path.join(spec_cases_dirs[i], selected_frames[i][0]) for i in range(N)]
-    image_frames_dirs = [os.path.join(image_cases_dirs[i], selected_frames[i][0]) for i in range(N)]
+    spec_cases_dirs = [os.path.join(
+        selected_spec_dirs[i], selected_cases[i][0]) for i in range(N)]
+    image_cases_dirs = [os.path.join(
+        selected_image_dirs[i], selected_cases[i][0]) for i in range(N)]
+    assert (len(os.listdir(spec_cases_dirs[i])) == len(
+        os.listdir(image_cases_dirs[i])) for i in range(N))
+    selected_frames = [sample(os.listdir(spec_cases_dirs[i]), 1)
+                       for i in range(N)]
+    spec_frames_dirs = [os.path.join(
+        spec_cases_dirs[i], selected_frames[i][0]) for i in range(N)]
+    image_frames_dirs = [os.path.join(
+        image_cases_dirs[i], selected_frames[i][0]) for i in range(N)]
     try:
-        spect_input = [np.absolute(np.load(spec_frames_dirs[i])) for i in range(N)]
+        spect_input = [np.absolute(np.load(spec_frames_dirs[i]))
+                       for i in range(N)]
         for i in range(N):
             spect_input[i] = spect_input[i][np.newaxis, :]
         spect_input = np.stack([i for i in spect_input], axis=0)
-        image_input = np.stack([np.transpose(np.load(image_frames_dirs[i]), (0, 3, 1, 2)) for i in range(N)], axis=0)
+        image_input = np.stack([np.transpose(
+            np.load(image_frames_dirs[i]), (0, 3, 1, 2)) for i in range(N)], axis=0)
     except:
         return [None, None]
     return [spect_input, image_input]
