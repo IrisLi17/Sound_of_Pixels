@@ -449,6 +449,7 @@ def test_all(video_dir, audio_dir, result_dir, batch_size=1, log_dir=None, model
             wave1 = np.array([])
             wave2 = np.array([])
             wave_sets = []
+            spec_sets = []
             print(cases)
             origin_wave,_ =librosa.load(os.path.join(audio_dir,instru,case[0:-4]+'.wav'),sr=11000)
             for n in range(0,case_length):
@@ -460,23 +461,40 @@ def test_all(video_dir, audio_dir, result_dir, batch_size=1, log_dir=None, model
                 estimated_spects = test1step(video_net,audio_net,syn_net,video_input,
                                             amplitude_to_db(np.absolute(audio_input),ref = np.max),
                                             device)        
-                if n == 0:       
+                if n == 0: 
+                    temp = amplitude_to_db(np.absolute(audio_input),ref=np.max).transpose().flatten()
+                    spec_sets.append(temp)     
                     for idx1 in range(estimated_spects.shape[1]):
                         for idx2 in range(estimated_spects.shape[2]):
-                            wave_sets.append(mask2wave(estimated_spects[0,idx1,idx2,0,:,:] * audio_input,'linear'))
+                            # wave_sets.append(mask2wave(estimated_spects[0,idx1,idx2,0,:,:] * audio_input,'linear'))
+                            temp = amplitude_to_db(np.absolute(estimated_spects[0,idx1,idx2,0,:,:] * audio_input),ref = np.max)
+                            temp = temp.transpose().flatten()
+                            spec_sets.append(temp)
                 else:
+                    temp = amplitude_to_db(np.absolute(audio_input),ref=np.max).transpose().flatten()
+                    spec_sets[0] = np.append(spec_sets[0], temp)
                     for idx1 in range(estimated_spects.shape[1]):
                         for idx2 in range(estimated_spects.shape[2]):
-                            wave_sets[idx1*estimated_spects.shape[1]+idx2] = np.append(
-                                            wave_sets[idx1*estimated_spects.shape[1]+idx2],
-                                            mask2wave(estimated_spects[0,idx1,idx2,0,:,:] * audio_input,'linear'))
-            wave_sets = np.array(wave_sets)
-            print("waveset",wave_sets.shape)
-            BLOCK_LENGTH = 66302
-            length = math.floor(len(origin_wave)/BLOCK_LENGTH)*BLOCK_LENGTH
-            wave_sets = np.insert(wave_sets,0,origin_wave[0:length],0)
-            print("waveset",wave_sets.shape)
-            clust_estimator.fit(wave_sets)
+                            # wave_sets[idx1*estimated_spects.shape[1]+idx2] = np.append(
+                            #                 wave_sets[idx1*estimated_spects.shape[1]+idx2],
+                            #                 mask2wave(estimated_spects[0,idx1,idx2,0,:,:] * audio_input,'linear'))
+                            temp = amplitude_to_db(np.absolute(estimated_spects[0,idx1,idx2,0,:,:] * audio_input),ref = np.max)
+                            temp = temp.transpose().flatten()
+                            spec_sets[idx1*estimated_spects.shape[1]+idx2+1] = np.append(
+                                            spec_sets[idx1*estimated_spects.shape[1]+idx2+1],
+                                            temp.reshape(1,-1))
+            # wave_sets = np.array(wave_sets)
+            # print("waveset",wave_sets.shape)
+            # BLOCK_LENGTH = 66302
+            # length = math.floor(len(origin_wave)/BLOCK_LENGTH)*BLOCK_LENGTH
+            # wave_sets = np.insert(wave_sets,0,origin_wave[0:length],0)
+            # print("waveset",wave_sets.shape)
+
+            spec_sets = np.array(spec_sets)
+            print("specset",spec_sets.shape)
+
+            # clust_estimator.fit(wave_sets)
+            clust_estimator.fit(spec_sets)
             '''
             for idx1 in range(estimated_spects.shape[1]):
                 for idx2 in range(estimated_spects.shape[2]):
@@ -487,7 +505,9 @@ def test_all(video_dir, audio_dir, result_dir, batch_size=1, log_dir=None, model
             print(labels)
                 
             with open('label.txt','w') as file:
-               file.write(str(labels))
+                for idx1 in range(estimated_spects.shape[1]):
+                    file.write(str(labels[idx1*estimated_spects.shape[2]:(idx1+1)*estimated_spects.shape[2]-1]))
+                    file.write('\n')
 
             exit()
 
