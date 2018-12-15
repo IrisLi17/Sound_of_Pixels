@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 from util.datahelper import load_data_from_video
 from models.train import train_all
 import datetime
+import argparse
 
 
 def main():
@@ -19,10 +20,19 @@ def main():
     # plt.subplot(2,1,2)
     # plt.imshow(video[101,:,:,:])
     # plt.show()
-    SPEC_DIR = '../audio_spectrums_linear'
-    IMAGE_DIR = '../video_3frames'
-    log_dir = os.path.join('../log', datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S"))
-    train_all(SPEC_DIR, IMAGE_DIR, batch_size=4, log_dir=log_dir, model_dir='../model')
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument('--spect_dir', help='spectrogram directory', default='../audio_spectrums_linear')
+    parser.add_argument('--image_dir', help='image directory', default='../video_3frames')
+    parser.add_argument('--log_dir', default='../log')
+    parser.add_argument('--model_dir', default='../model')
+    parser.add_argument('--batch_size', type=int, default=4)
+    parser.add_argument('--validate', type=int, default=0)
+    args = parser.parse_args()
+    SPEC_DIR = args.spect_dir
+    IMAGE_DIR = args.image_dir
+    log_dir = os.path.join(args.log_dir, datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S"))
+    train_all(SPEC_DIR, IMAGE_DIR, batch_size=args.batch_size, log_dir=log_dir, model_dir=args.model_dir,
+              validate=bool(args.validate))
 
 
 if __name__ == '__main__':
