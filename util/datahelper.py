@@ -286,19 +286,21 @@ def load_test_data(videodir, audiodir, BLOCK_LENGTH = 66302, WINDOW_SIZE = 1022,
     BLOCK_TIME = BLOCK_LENGTH/SAMPLE_RATE
     video_block_length = math.floor(BLOCK_TIME*FPS)
     FRAME_INDEX = [0, math.floor((video_block_length-1)/2), video_block_length-1]
-    instruments = os.listdir(videodir)[0:1]
+    instruments = os.listdir(videodir)[3:4]
     for instru in instruments:
         print("load video from "+ str(instru))
         video_data[instru] = {}
         instru_dir = os.path.join(videodir, instru)
         cases = os.listdir(instru_dir)[6:7]
         for case in cases:
+            print(case)
             video_data[instru][case] = []
             case_dir = os.path.join(instru_dir, case)
             cap = cv2.VideoCapture(case_dir)
             frameCount = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
             frameWidth = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             frameHeight = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            gap = math.floor(frameWidth/2)
             block_num = math.floor(frameCount/video_block_length)
             print("block_num:",block_num)
             for i in range(block_num):
@@ -311,7 +313,10 @@ def load_test_data(videodir, audiodir, BLOCK_LENGTH = 66302, WINDOW_SIZE = 1022,
                 result = buf[FRAME_INDEX, :, :, :]
                 final = np.empty((len(FRAME_INDEX), 224, 224, 3),np.dtype('uint8'))
                 for p in range(0, len(FRAME_INDEX)):
-                    final[p, :, :, :] = cv2.resize(result[p, :, :, :], (224, 224))
+                    final[p, :, :, :] = cv2.resize(result[p, :, 0:gap, :], (224, 224))
+                    # cv2.imshow('input img',final[p,:,:,:])
+                    # cv2.waitKey(0)
+                # exit()
                 temp = np.transpose(final,(0,3,1,2))
                 temp = temp[np.newaxis,:]
                 video_data[instru][case].append(temp)
@@ -324,7 +329,7 @@ def load_test_data(videodir, audiodir, BLOCK_LENGTH = 66302, WINDOW_SIZE = 1022,
     # prepare for log resample
     sample_index2 =np.array(np.linspace(0,510,256)).astype(int)
 
-    instruments = os.listdir(audiodir)[0:1]
+    instruments = os.listdir(audiodir)[3:4]
     for instru in instruments:
         print("load music from " + str(instru))
         audio_data[instru] = {}
