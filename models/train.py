@@ -156,7 +156,7 @@ def test1step(video_net, audio_net, syn_net, image_input, spect_input, device):
     # forward audio
     out_audio_net = audio_net.forward(synspect_input)  # size batch_size,K,256,256
     # forward video, get pixel level features
-    out_video_net = video_net.forward(image_input[0,:,:,:,:], mode='tes')  # size batch_size, K, 14, 14
+    out_video_net = video_net.forward(image_input[0,:,:,:,:], mode='test')  # size batch_size, K, 14, 14
     estimated_spects = torch.zeros((video_net.batch_size, out_video_net.shape[-2], out_video_net.shape[-1], 1,
                                     spect_input.shape[-2], spect_input.shape[-1]))
     for idx1 in range(out_video_net.shape[-2]):
@@ -187,11 +187,30 @@ def test_train1step():
     return train1step(video_net, audio_net, syn_net, image_input, spect_input, validate=True)
 
 
+def test_test1step(batch_size=1, model_dir='../model'):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    video_net = modifyresnet18(batch_size).to(device)
+    audio_net = UNet7().to(device)
+    syn_net = synthesizer().to(device)
+    video_net.load_state_dict(torch.load(os.path.join(model_dir, 'video_net_params.pkl')))
+    audio_net.load_state_dict(torch.load(os.path.join(model_dir, 'audio_net_params.pkl')))
+    syn_net.load_state_dict(torch.load(os.path.join(model_dir, 'syn_net_params.pkl')))
+    video_net.eval()
+    audio_net.eval()
+    syn_net.eval()
+    video_input = np.load('/home/thu-skyworks/irisli/Projects/video_input_left.npy')
+    audio_input = np.load('/home/thu-skyworks/irisli/Projects/audio_input.npy')
+    estimated_spects = test1step(video_net, audio_net, syn_net, video_input,
+                                 amplitude_to_db(np.absolute(audio_input), ref=np.max),
+                                 device)
+    np.save('estimated_spects_left', estimated_spects)
+
+
 SPEC_DIR = '/data/liyunfei/dataset/audio_spectrums'
 IMAGE_DIR = '/data/liyunfei/dataset/video_3frames'
 
 
-def train_all(spec_dir, image_dir, num_epoch=10, batch_size=1, N=2, validate_freq=10000, log_freq=100, log_dir=None,
+def train_all(spec_dir, image_dir, num_epoch=10, steps_per_epoch = 50000, batch_size=1, N=2, validate_freq=10000, log_freq=100, log_dir=None,
               model_dir=None, validate=False):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     video_net = modifyresnet18(batch_size).to(device)
@@ -233,7 +252,7 @@ def train_all(spec_dir, image_dir, num_epoch=10, batch_size=1, N=2, validate_fre
             total_loss = 0.0
             count = 0
             for t in itertools.count():
-                if t > 50000:
+                if t > steps_per_epoch:
                     break
                 if t % validate_freq == 0:
                     # [spect_input, image_input] = sample_input(spec_dir, image_dir, 'validate')
@@ -326,9 +345,9 @@ def train_all(spec_dir, image_dir, num_epoch=10, batch_size=1, N=2, validate_fre
                     count = 0
             if not os.path.exists(model_dir):
                 os.mkdir(model_dir)
-            torch.save(video_net.state_dict(), os.path.join(model_dir, 'video_net_params.pkl'))
-            torch.save(audio_net.state_dict(), os.path.join(model_dir, 'audio_net_params.pkl'))
-            torch.save(syn_net.state_dict(), os.path.join(model_dir, 'syn_net_params.pkl'))
+            torch.save(video_net.state_dict(), os.path.join(model_dir, str(epoch) + 'video_net_params.pkl'))
+            torch.save(audio_net.state_dict(), os.path.join(model_dir, str(epoch) + 'audio_net_params.pkl'))
+            torch.save(syn_net.state_dict(), os.path.join(model_dir, str(epoch) + 'syn_net_params.pkl'))
             print("model saved to " + str(model_dir) + '\n')
     else:
         [spec_data, image_data] = load_all_training_data(spec_dir, image_dir)
