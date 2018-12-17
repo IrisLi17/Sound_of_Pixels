@@ -48,7 +48,7 @@ def train1step(video_net, audio_net, syn_net, video_optimizer, audio_optimizer, 
     # S_mix = \sum_i {S_i} / N
     synspect_input = mix_spect_input(spect_input)  # batch_size, 1, 256, 256
     # useful definitions
-    dominant_idx = np.argmax(spect_input, axis=0)  # batch_size, 1, 256, 256
+    dominant_idx = np.argmax(np.absolute(spect_input), axis=0)  # batch_size, 1, 256, 256
     # loss = torch.zeros(N, dtype=torch.float64)
     total_loss = None
     estimated_spects = torch.zeros((N, video_net.batch_size, 1, 256, 256))
@@ -377,7 +377,9 @@ def train_all(spec_dir, image_dir, num_epoch=10, batch_size=1, N=2, validate_fre
             # plt.imshow(ground_truth[1])
             # plt.title('ground truth 1')
             # plt.show()
-            mixed_spect = mix_spect_input(spect_input_comp)[0, :, :]
+            
+            # mixed_spect = mix_spect_input(spect_input_comp)[0, :, :]
+            mixed_spect = np.sum(spect_input_comp,axis=0)
             wav_input_ground = np.stack(
                 [mask2wave(spect_input_comp[i, 0, :, :], type='linear') for i in range(spect_input_comp.shape[0])],
                 axis=0)  # N, nsample
