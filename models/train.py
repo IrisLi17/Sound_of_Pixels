@@ -308,7 +308,8 @@ def train_all(spec_dir, image_dir, num_epoch=10, steps_per_epoch = 50000, batch_
                         total_loss += loss
                         count += 1
                         # convert spects to wav
-                        mixed_spect = mix_spect_input(spect_input_comp)[0, :, :]
+                        mixed_spect = np.sum(spect_input_comp,axis=0)[0,:,:]
+                        # mixed_spect = mix_spect_input(spect_input_comp)[0, :, :]
                         wav_input_ground = np.stack(
                             [mask2wave(spect_input_comp[i, 0, :, :], type='linear') for i in
                              range(spect_input_comp.shape[0])],
