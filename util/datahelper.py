@@ -9,6 +9,7 @@ import torch
 import librosa
 from librosa import amplitude_to_db
 import math
+import matplotlib.pyplot as plt
 
 
 def convert_video(src, dst):
@@ -267,7 +268,7 @@ def load_data_from_video(VideoName, audio_datafile, frequency):
 
 
 def load_test_data(videodir, audiodir, BLOCK_LENGTH = 66302, WINDOW_SIZE = 1022,
-                    HOP_LENGTH = 256, SAMPLE_RATE=11000, FPS=24, fstype='linear'):
+                    HOP_LENGTH = 256, SAMPLE_RATE=11000, FPS=24, fstype='linear',test_type='validate'):
     """
     :videodir: the location where video file locates
     :audiodir: the location where audio file locates
@@ -281,64 +282,133 @@ def load_test_data(videodir, audiodir, BLOCK_LENGTH = 66302, WINDOW_SIZE = 1022,
              accept 'linear' or 'log'
     """
     # batchsize = 1
-    video_data = {}
-    audio_data = {}
-    BLOCK_TIME = BLOCK_LENGTH/SAMPLE_RATE
-    video_block_length = math.floor(BLOCK_TIME*FPS)
-    FRAME_INDEX = [0, math.floor((video_block_length-1)/2), video_block_length-1]
-    instruments = os.listdir(videodir)[3:4]
-    for instru in instruments:
-        print("load video from "+ str(instru))
-        video_data[instru] = {}
-        instru_dir = os.path.join(videodir, instru)
-        cases = os.listdir(instru_dir)[6:7]
-        for case in cases:
-            print(case)
-            video_data[instru][case] = []
-            case_dir = os.path.join(instru_dir, case)
-            cap = cv2.VideoCapture(case_dir)
-            frameCount = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-            frameWidth = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            frameHeight = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            gap = math.floor(frameWidth/2)
-            block_num = math.floor(frameCount/video_block_length)
+    if test_type == 'validate':
+        video_data = {}
+        audio_data = {}
+        BLOCK_TIME = BLOCK_LENGTH/SAMPLE_RATE
+        video_block_length = math.floor(BLOCK_TIME*FPS)
+        FRAME_INDEX = [0, math.floor((video_block_length-1)/2), video_block_length-1]
+        instruments = os.listdir(videodir)[0:1]
+        for instru in instruments:
+            print("load video from "+ str(instru))
+            video_data[instru] = {}
+            instru_dir = os.path.join(videodir, instru)
+            cases = os.listdir(instru_dir)[6:7]
+            for case in cases:
+                print(case)
+                video_data[instru][case] = []
+                case_dir = os.path.join(instru_dir, case)
+                cap = cv2.VideoCapture(case_dir)
+                frameCount = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                frameWidth = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                frameHeight = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                gap = math.floor(frameWidth/2)
+                block_num = math.floor(frameCount/video_block_length)
+                print("block_num:",block_num)
+                for i in range(block_num):
+                    buf = np.empty((video_block_length, frameHeight, frameWidth, 3), np.dtype('uint8'))
+                    fc = 0
+                    ret = True           
+                    while (fc < video_block_length and ret):
+                        ret, buf[fc] = cap.read()
+                        fc += 1
+                    result = buf[FRAME_INDEX, :, :, :]
+                    final = np.empty((len(FRAME_INDEX), 224, 224, 3),np.dtype('uint8'))
+                    for p in range(0, len(FRAME_INDEX)):
+                        final[p, :, :, :] = cv2.resize(result[p, :, 0:gap, :], (224, 224))
+                        # final[p, :, :, :] = cv2.resize(result[p, :, gap:-1, :], (224, 224))
+                        # cv2.imshow('input img',final[p,:,:,:])
+                        # cv2.waitKey(0)
+                    # exit()
+                    temp = np.transpose(final,(0,3,1,2))
+                    temp = temp[np.newaxis,:]
+                    video_data[instru][case].append(temp)
+                cap.release()
+
+        frequencies = np.linspace(SAMPLE_RATE/2/512,SAMPLE_RATE/2,512)
+        log_freq = np.log10(frequencies)
+        sample_freq = np.linspace(log_freq[0],log_freq[-1],256)
+        sample_index = np.array([np.abs(log_freq-x).argmin() for x in sample_freq])
+        # prepare for log resample
+        sample_index2 =np.array(np.linspace(0,510,256)).astype(int)
+
+        instruments = os.listdir(audiodir)[0:1]
+        for instru in instruments:
+            print("load music from " + str(instru))
+            audio_data[instru] = {}
+            instru_dir = os.path.join(audiodir, instru)
+            cases = os.listdir(instru_dir)[6:7]
+            for case in cases:
+                audio_data[instru][case] = []
+                case_dir = os.path.join(instru_dir, case)
+                w,_ = librosa.load(case_dir,sr=SAMPLE_RATE)
+                block_num = math.floor(len(w)/BLOCK_LENGTH)
+                for i in range(block_num):
+                    # select the wave data
+                    data = w[i*BLOCK_LENGTH:(i+1)*BLOCK_LENGTH]
+                    # STFT
+                    stft_data = librosa.stft(data,n_fft = WINDOW_SIZE,hop_length = HOP_LENGTH,center = False)
+                    # log scale resample
+                    if fstype == 'log':
+                        stft_data = stft_data[sample_index,:]
+                    elif fstype == 'linear':
+                        stft_data = stft_data[sample_index2,:]
+                    # print(stft_data.shape)
+                    # save data
+                    stft_data = stft_data[np.newaxis,np.newaxis,np.newaxis, :]
+                    audio_data[instru][case].append(stft_data)
+
+        return [video_data,audio_data]
+    elif test_type=='test25':
+        video_data = {}
+        audio_data = {}
+        BLOCK_TIME = BLOCK_LENGTH/SAMPLE_RATE
+        video_block_length = math.floor(BLOCK_TIME*FPS)
+        FRAME_INDEX = [0, math.floor((video_block_length-1)/2), video_block_length-1]
+        frame_each_block = math.floor(video_block_length/10)+1
+        videos = os.listdir(videodir)
+        for video in videos:
+            video_data[video] = []
+            video_dir = os.path.join(videodir, video)
+            frameCount = int(os.listdir(video_dir)[-1][0:-4])
+            block_num = math.floor(frameCount/frame_each_block)
             print("block_num:",block_num)
             for i in range(block_num):
-                buf = np.empty((video_block_length, frameHeight, frameWidth, 3), np.dtype('uint8'))
-                fc = 0
-                ret = True           
-                while (fc < video_block_length and ret):
-                    ret, buf[fc] = cap.read()
-                    fc += 1
-                result = buf[FRAME_INDEX, :, :, :]
-                final = np.empty((len(FRAME_INDEX), 224, 224, 3),np.dtype('uint8'))
-                for p in range(0, len(FRAME_INDEX)):
-                    final[p, :, :, :] = cv2.resize(result[p, :, 0:gap, :], (224, 224))
-                    # cv2.imshow('input img',final[p,:,:,:])
-                    # cv2.waitKey(0)
-                # exit()
-                temp = np.transpose(final,(0,3,1,2))
-                temp = temp[np.newaxis,:]
-                video_data[instru][case].append(temp)
-            cap.release()
+                index_str = [str(math.floor(x/10)+1+i*frame_each_block).zfill(6) + '.jpg' for x in FRAME_INDEX] 
+                final = np.empty((2, len(FRAME_INDEX), 224, 224, 3),np.dtype('uint8'))
+                for idx in range(len(index_str)):
+                    frame_dir = os.path.join(video_dir,index_str[idx])
+                    frame = np.array(cv2.imread(frame_dir),dtype='uint8')
+                    gap = math.floor(frame.shape[1]/2)
+                    # gap = math.floor(gap*0.66)
+                    final[0, idx, :, :, :] = cv2.resize(frame[ :, 0:gap, :], (224, 224)) 
+                    final[1, idx, :, :, :] = cv2.resize(frame[:, gap:-1, :], (224, 224))
+                    ''' 
+                    plt.subplot(1,2,1)
+                    plt.imshow(final[0, idx, :, :, :])
+                    plt.subplot(1,2,2)
+                    plt.imshow(final[1, idx, :, :, :])
+                    plt.show()
+                    exit()
+                    '''
+                    
 
-    frequencies = np.linspace(SAMPLE_RATE/2/512,SAMPLE_RATE/2,512)
-    log_freq = np.log10(frequencies)
-    sample_freq = np.linspace(log_freq[0],log_freq[-1],256)
-    sample_index = np.array([np.abs(log_freq-x).argmin() for x in sample_freq])
-    # prepare for log resample
-    sample_index2 =np.array(np.linspace(0,510,256)).astype(int)
+                temp = np.transpose(final,(0,1,4,2,3))
+                video_data[video].append(temp)
 
-    instruments = os.listdir(audiodir)[3:4]
-    for instru in instruments:
-        print("load music from " + str(instru))
-        audio_data[instru] = {}
-        instru_dir = os.path.join(audiodir, instru)
-        cases = os.listdir(instru_dir)[6:7]
-        for case in cases:
-            audio_data[instru][case] = []
-            case_dir = os.path.join(instru_dir, case)
-            w,_ = librosa.load(case_dir,sr=SAMPLE_RATE)
+        frequencies = np.linspace(SAMPLE_RATE/2/512,SAMPLE_RATE/2,512)
+        log_freq = np.log10(frequencies)
+        sample_freq = np.linspace(log_freq[0],log_freq[-1],256)
+        sample_index = np.array([np.abs(log_freq-x).argmin() for x in sample_freq])
+        # prepare for log resample
+        sample_index2 =np.array(np.linspace(0,510,256)).astype(int)
+
+        audios = os.listdir(audiodir)
+        for audio in audios:
+            print("load music from " + str(audio))
+            audio_data[audio] = []
+            audio_dir = os.path.join(audiodir, audio)
+            w,_ = librosa.load(audio_dir,sr=SAMPLE_RATE)
             block_num = math.floor(len(w)/BLOCK_LENGTH)
             for i in range(block_num):
                 # select the wave data
@@ -353,9 +423,8 @@ def load_test_data(videodir, audiodir, BLOCK_LENGTH = 66302, WINDOW_SIZE = 1022,
                 # print(stft_data.shape)
                 # save data
                 stft_data = stft_data[np.newaxis,np.newaxis,np.newaxis, :]
-                audio_data[instru][case].append(stft_data)
-
-    return [video_data,audio_data]
+                audio_data[audio].append(stft_data)
+        return [video_data,audio_data]
 
     
 

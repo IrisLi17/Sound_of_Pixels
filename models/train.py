@@ -14,8 +14,10 @@ import matplotlib.pyplot as plt
 import librosa
 import math
 import cv2
+import mir_eval
 from librosa import amplitude_to_db
 from librosa.output import write_wav
+import librosa.display
 from sklearn.cluster import KMeans
 
 
@@ -178,9 +180,10 @@ def test1step(video_net, audio_net, syn_net, image_input, spect_input, device):
     # image_input = image_input[0, :, :, :, :]
     image_input = image_normalization(image_input).to(device)
     synspect_input = spect_input[0, :, :, :, :]
+    synspect_input = amplitude_to_db(np.absolute(synspect_input),ref = np.max)
     synspect_input = torch.from_numpy(synspect_input).to(device)
     # forward audio
-    print("audio_input",synspect_input)
+    # print("audio_input",synspect_input)
     out_audio_net = audio_net.forward(synspect_input)  # size batch_size,K,256,256
     # forward video, get pixel level features
     out_video_net = video_net.forward(image_input[0,:,:,:,:], mode='tes')  # size batch_size, K, 14, 14
@@ -243,13 +246,13 @@ def train_all(spec_dir, image_dir, num_epoch=10, steps_per_epoch = 50000, batch_
     video_net = modifyresnet18(batch_size).to(device)
     audio_net = UNet7().to(device)
     syn_net = synthesizer().to(device)
-    if os.path.exists(os.path.join(model_dir, 'video_net_params.pkl')) and os.path.exists(
-            os.path.join(model_dir, 'audio_net_params.pkl')) and os.path.exists(
-        os.path.join(model_dir, 'syn_net_params.pkl')):
+    if os.path.exists(os.path.join(model_dir, '4video_net_params.pkl')) and os.path.exists(
+            os.path.join(model_dir, '4audio_net_params.pkl')) and os.path.exists(
+        os.path.join(model_dir, '4syn_net_params.pkl')):
         print('load params!')
-        video_net.load_state_dict(torch.load(os.path.join(model_dir, 'video_net_params.pkl')))
-        audio_net.load_state_dict(torch.load(os.path.join(model_dir, 'audio_net_params.pkl')))
-        syn_net.load_state_dict(torch.load(os.path.join(model_dir, 'syn_net_params.pkl')))
+        video_net.load_state_dict(torch.load(os.path.join(model_dir, '4video_net_params.pkl')))
+        audio_net.load_state_dict(torch.load(os.path.join(model_dir, '4audio_net_params.pkl')))
+        syn_net.load_state_dict(torch.load(os.path.join(model_dir, '4syn_net_params.pkl')))
         if validate:
             video_net.eval()
             audio_net.eval()
@@ -388,6 +391,7 @@ def train_all(spec_dir, image_dir, num_epoch=10, steps_per_epoch = 50000, batch_
         print('Data loaded!')
         while (input() != 'q'):
             image_input = np.zeros((N, 3 * batch_size, 3, 224, 224), dtype='float32')
+            '''
             _spect_input = []
             for bidx in range(batch_size):
                 [spect_input_comp, image_input_mini] = sample_from_dict(spec_data, image_data)
@@ -397,8 +401,9 @@ def train_all(spec_dir, image_dir, num_epoch=10, steps_per_epoch = 50000, batch_
                 image_input[:, 3 * bidx:3 * bidx + 3, :, :, :] = image_input_mini
             spect_input = np.transpose(np.stack(_spect_input, axis=0),
                                                (1, 0, 2, 3, 4))
-            # [spect_input_comp, image_input_mini] = sample_from_dict(spec_data, image_data)  # N,1,256,256; N,3,3,224,224
-            # spect_input_mini = np.transpose(spect_input_comp[np.newaxis, :], (1, 0, 2, 3, 4))
+            '''
+            [spect_input_comp, image_input_mini] = sample_from_dict(spec_data, image_data)  # N,1,256,256; N,3,3,224,224
+            spect_input_mini = np.transpose(spect_input_comp[np.newaxis, :], (1, 0, 2, 3, 4))
 
             # print(spect_input_mini.shape)
             # print(image_input_mini.shape)
@@ -427,9 +432,9 @@ def train_all(spec_dir, image_dir, num_epoch=10, steps_per_epoch = 50000, batch_
             '''
 
             [_, estimated_masks, ground_truth] = train1step(video_net, audio_net, syn_net, None, None, None,
-                                                            image_input, spect_input,
+                                                            image_input_mini, spect_input_mini,
                                                             device, N=2, validate=True)
-            '''                                                
+                                                            
             plt.figure()
             plt.subplot(2,2,1)
             plt.imshow(estimated_masks[0,0,0,:,:])
@@ -442,8 +447,8 @@ def train_all(spec_dir, image_dir, num_epoch=10, steps_per_epoch = 50000, batch_
             plt.imshow(ground_truth[1])
             plt.title('ground truth 1')
             plt.show()
-            '''
-            # mixed_spect = mix_spect_input(spect_input_comp)[0, :, :]
+            
+
             mixed_spect = np.sum(spect_input_comp,axis=0)
             wav_input_ground = np.stack(
                 [mask2wave(spect_input_comp[i, 0, :, :], type='linear') for i in range(spect_input_comp.shape[0])],
@@ -456,6 +461,11 @@ def train_all(spec_dir, image_dir, num_epoch=10, steps_per_epoch = 50000, batch_
                 [mask2wave(estimated_masks[i, 0, 0, :, :] * mixed_spect, type='linear') for i in
                  range(estimated_masks.shape[0])],
                 axis=0)  # N, nsample
+            [nsdr, sir, sar] = compute_validation(wav_input_ground, wav_estimated, wav_mixed)
+            print("nsdr %f, %f" % (nsdr[0], nsdr[1]))
+            print("sir %f, %f" % (sir[0], sir[1]))
+            print("sar %f, %f" % (sar[0], sar[1]))
+
             fs = 11000
             for i in range(2):
                 write_wav('input_cal1' + str(i) + '.wav', wav_input_cal[i, :], fs)
@@ -464,257 +474,290 @@ def train_all(spec_dir, image_dir, num_epoch=10, steps_per_epoch = 50000, batch_
             write_wav('mixed.wav', wav_mixed[0, :], fs)
 
 
-def test_all(video_dir, audio_dir, result_dir, batch_size=1, log_dir=None, model_dir=None):                    
+def test_all(video_dir, audio_dir, result_dir, batch_size=1, log_dir=None, model_dir=None,test_type='validate'):                    
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     video_net = modifyresnet18(batch_size).to(device)
     audio_net = UNet7().to(device)
     syn_net = synthesizer().to(device)
     clust_estimator = KMeans(n_clusters=2)
-    assert os.path.exists(os.path.join(model_dir, 'video_net_params.pkl'))
-    assert os.path.exists(os.path.join(model_dir, 'audio_net_params.pkl'))
-    assert os.path.exists(os.path.join(model_dir, 'syn_net_params.pkl'))
-    video_net.load_state_dict(torch.load(os.path.join(model_dir, 'video_net_params.pkl')))
-    audio_net.load_state_dict(torch.load(os.path.join(model_dir, 'audio_net_params.pkl')))
-    syn_net.load_state_dict(torch.load(os.path.join(model_dir, 'syn_net_params.pkl')))
+    assert os.path.exists(os.path.join(model_dir, '4video_net_params.pkl'))
+    assert os.path.exists(os.path.join(model_dir, '4audio_net_params.pkl'))
+    assert os.path.exists(os.path.join(model_dir, '4syn_net_params.pkl'))
+    video_net.load_state_dict(torch.load(os.path.join(model_dir, '4video_net_params.pkl')))
+    audio_net.load_state_dict(torch.load(os.path.join(model_dir, '4audio_net_params.pkl')))
+    syn_net.load_state_dict(torch.load(os.path.join(model_dir, '4syn_net_params.pkl')))
     # TODO load testing data and call `test1step`
     video_net.eval()
     audio_net.eval()
     syn_net.eval()
 
-    video_input1 = np.load('D:\\huyb\\std\\video_3frames\\acoustic_guitar\\1\\3.npy')
-    video_input2 = np.load('D:\\huyb\\std\\video_3frames\\flute\\1\\3.npy')
-    audio_input1 = np.load('D:\\huyb\\std\\audio_spectrums_linear\\flute\\1\\3.npy')
-    audio_input2 = np.load('D:\\huyb\\std\\audio_spectrums_linear\\acoustic_guitar\\1\\3.npy')
-    audio_input = audio_input1 + audio_input2
-    audio_input = audio_input[np.newaxis,np.newaxis,np.newaxis,:]
-    video_input = np.zeros(video_input1.shape,dtype = 'uint8')
-    gap = video_input1.shape[2]/2
-    for p in range(0,3):
-        video_input[p,:,0:112,:] = cv2.resize(video_input2[p, :, :, :], (112,224))
-        video_input[p,:,112:224,:] = cv2.resize(video_input1[p, :, :, :], (112,224))
-    video_input = video_input1
-    video_input = np.transpose(video_input,(0,3,1,2))
-    video_input = video_input[np.newaxis,:]
-                
-
-    temp1 = amplitude_to_db(np.absolute(audio_input1),ref = np.max)
-    temp2 = amplitude_to_db(np.absolute(audio_input2),ref = np.max)
-    temp = np.sum(amplitude_to_db(np.absolute(np.stack([audio_input1,audio_input2])),ref = np.max),axis = 0)
-    # temp = temp1 + temp2
-    temp = temp[np.newaxis,np.newaxis,np.newaxis,:]
-
-    audio_input = temp
-
-    estimated_spects = test1step(video_net,audio_net,syn_net,video_input,
-                                audio_input,
-                                device)      
-    for idx1 in range(estimated_spects.shape[1]):
-        for idx2 in range(estimated_spects.shape[2]):
-            plt.figure()
-            plt.imshow(estimated_spects[0,idx1,idx2,0,:,:] * audio_input[0,0,0,:,:])
-            plt.savefig('./testsub/input1only/input1-oneoutput'+str(idx1)+'-'+str(idx2)+'.jpg')
-            plt.close()
-    exit()
-
-
-
-
-
-
-    [video_dic, audio_dic] = load_test_data(video_dir, audio_dir)
-    if(len(video_dic.keys())==len(audio_dic.keys())):
-        instruments = video_dic.keys()
-    else:
-        print("different number of instruments in video and audio!")
-        print(len(video_dic.keys()))
-        print(len(audio_dic.keys()))
-        return
-    for instru in instruments:
-        if(len(video_dic[instru].keys())==len(audio_dic[instru].keys())):
-            cases = video_dic[instru].keys()
+    [video_dic, audio_dic] = load_test_data(video_dir, audio_dir,test_type=test_type)
+    if test_type=='test25':
+        if(len(video_dic.keys())==len(audio_dic.keys())):
+            files = video_dic.keys()
         else:
-            print("different number of cases in instrument " + str(instru)+'!')
-            print(len(video_dic[instru].keys()))
-            print(len(audio_dic[instru].keys()))
+            print("different number of instruments in video and audio!")
+            print(len(video_dic.keys()))
+            print(len(audio_dic.keys()))
             return
-        for case in cases:
-            if(len(video_dic[instru][case])==len(audio_dic[instru][case[0:-4]+'.wav'])):
-                case_length = len(video_dic[instru][case])
+        for onefile in files:
+            video_data = np.array(video_dic[onefile])
+            audio_data = np.array(audio_dic[str(onefile)+'.wav'])
+            print(video_data.shape)
+            print(audio_data.shape)
+            block_num = video_data.shape[0]
+            estimated_wav = []
+            for i in range(block_num):
+                for k in range(2):
+                    video_input = video_data[i,k,:,:,:,:][np.newaxis,:]
+                    audio_input = audio_data[i,:,:,:,:,:]
+                    mask = test1step(video_net,audio_net,syn_net,video_input,
+                                                audio_input,
+                                                device)
+                    if i==0:
+                        estimated_wav.append(mask2wave(mask[0,0,0,0,:,:] * audio_input,'linear'))
+                    else:  
+                        estimated_wav[k] = np.append(estimated_wav[k],mask2wave(mask[0,0,0,0,:,:] * audio_input,'linear'))
+            estimated_wav = np.array(estimated_wav)
+            print(estimated_wav.shape)
+            write_wav(os.path.join(result_dir,onefile+'_1.wav'),estimated_wav[0,:],11000)
+            write_wav(os.path.join(result_dir,onefile+'_2.wav'),estimated_wav[1,:],11000)
+            
+                    
+
+    elif test_type=='validate':
+        if(len(video_dic.keys())==len(audio_dic.keys())):
+            instruments = video_dic.keys()
+        else:
+            print("different number of instruments in video and audio!")
+            print(len(video_dic.keys()))
+            print(len(audio_dic.keys()))
+            return
+        for instru in instruments:
+            if(len(video_dic[instru].keys())==len(audio_dic[instru].keys())):
+                cases = video_dic[instru].keys()
             else:
-                print("different number of blocks in instrument " + str(instru)+" case"+str(case)+'!')
-                print(len(video_dic[instru][case]))
-                print(len(audio_dic[instru][case[0:-4]+'.wav']))
+                print("different number of cases in instrument " + str(instru)+'!')
+                print(len(video_dic[instru].keys()))
+                print(len(audio_dic[instru].keys()))
                 return
-            destination1 = os.path.join(result_dir,str(instru) +'-'+str(case)+'-1.wav')
-            destination2 = os.path.join(result_dir,str(instru) +'-'+str(case)+'-2.wav')
-            wave1 = np.array([])
-            wave2 = np.array([])
-            wave_sets = []
-            spec_sets = []
-            # cluster by total data
-            print(cases)
-            origin_wave,_ =librosa.load(os.path.join(audio_dir,instru,case[0:-4]+'.wav'),sr=11000)
-            for n in range(0,case_length):
-                sub_wave_set = []
-                sub_spec_set = []
-                stop_idx = 4
-                # cluster by block at stop_idx, after which the program will end up
-                
-                video_input = video_dic[instru][case][n]
-                audio_input = audio_dic[instru][case[0:-4]+'.wav'][n]
-                # the following part is to test the test part with certain data 
-                
-                video_input1 = np.load('D:\\huyb\\std\\video_3frames\\acoustic_guitar\\1\\3.npy')
-                video_input2 = np.load('D:\\huyb\\std\\video_3frames\\flute\\1\\3.npy')
-                cv2.imshow('a img',video_input1[0,:,:,:])
-                cv2.waitKey(0)
-                audio_input1 = np.load('D:\\huyb\\std\\audio_spectrums_linear\\flute\\1\\3.npy')
-                audio_input2 = np.load('D:\\huyb\\std\\audio_spectrums_linear\\acoustic_guitar\\1\\3.npy')
-                audio_input = audio_input1 + audio_input2
-                audio_input = audio_input[np.newaxis,np.newaxis,np.newaxis,:]
-                video_input = np.zeros(video_input1.shape,dtype = 'uint8')
-                gap = video_input1.shape[2]/2
-                for p in range(0,3):
-                    video_input[p,:,0:112,:] = cv2.resize(video_input2[p, :, :, :], (112,224))
-                    video_input[p,:,112:224,:] = cv2.resize(video_input1[p, :, :, :], (112,224))
-                video_input = np.transpose(video_input,(0,3,1,2))
-                video_input = video_input[np.newaxis,:]
-                
-
-                temp1 = amplitude_to_db(np.absolute(audio_input1),ref = np.max)
-                temp2 = amplitude_to_db(np.absolute(audio_input2),ref = np.max)
-                temp = np.sum(amplitude_to_db(np.absolute(np.stack([audio_input1,audio_input2])),ref = np.max),axis = 0)
-                # temp = temp1 + temp2
-                temp = temp[np.newaxis,np.newaxis,np.newaxis,:]
-
-                audio_input = temp
-
-                # print("video input",video_input.shape)
-                # print("audio input",audio_input.shape)
-                print(n,case_length)
-                if n==stop_idx:
-                    np.save('audio_input',audio_input)
-                    np.save('video_input_left',video_input)
-                    exit()
-                estimated_spects = test1step(video_net,audio_net,syn_net,video_input,
-                                            audio_input,
-                                            device)      
-                if n == 0: 
-                    temp = amplitude_to_db(np.absolute(audio_input),ref=np.max).transpose().flatten()
-                    spec_sets.append(temp)   
-                    sub_spec_set.append(temp)  
-                    for idx1 in range(estimated_spects.shape[1]):
-                        for idx2 in range(estimated_spects.shape[2]):
-                            plt.figure()
-                            plt.imshow(estimated_spects[0,idx1,idx2,0,:,:] * audio_input[0,0,0,:,:])
-                            plt.savefig('./testsub/mixed-'+str(idx1)+'-'+str(idx2)+'.jpg')
-                            plt.close()
-                            sub_wave_set.append(mask2wave(estimated_spects[0,idx1,idx2,0,:,:] * audio_input,'linear'))
-
-                            wave_sets.append(mask2wave(estimated_spects[0,idx1,idx2,0,:,:] * audio_input,'linear'))
-                            
-                            temp = amplitude_to_db(np.absolute(estimated_spects[0,idx1,idx2,0,:,:] * audio_input),ref = np.max)
-                            temp = temp.transpose().flatten()
-                            spec_sets.append(temp)
-                            sub_spec_set.append(temp)
-                    exit()
+            for case in cases:
+                if(len(video_dic[instru][case])==len(audio_dic[instru][case[0:-4]+'.wav'])):
+                    case_length = len(video_dic[instru][case])
                 else:
-                    temp = amplitude_to_db(np.absolute(audio_input),ref=np.max).transpose().flatten()
-                    spec_sets[0] = np.append(spec_sets[0], temp)
-                    sub_spec_set.append(temp)
-                    for idx1 in range(estimated_spects.shape[1]):
-                        for idx2 in range(estimated_spects.shape[2]):
-                            plt.figure()
-                            plt.imshow(estimated_spects[0,idx1,idx2,0,:,:] * audio_input[0,0,0,:,:])
-                            plt.savefig('./testsub/'+str(idx1)+'-'+str(idx2)+'.jpg')
+                    print("different number of blocks in instrument " + str(instru)+" case"+str(case)+'!')
+                    print(len(video_dic[instru][case]))
+                    print(len(audio_dic[instru][case[0:-4]+'.wav']))
+                    return
+                destination1 = os.path.join(result_dir,str(instru) +'-'+str(case)+'-1.wav')
+                destination2 = os.path.join(result_dir,str(instru) +'-'+str(case)+'-2.wav')
+                wave1 = np.array([])
+                wave2 = np.array([])
+                wave_sets = []
+                spec_sets = []
+                # cluster by total data
+                print(cases)
+                origin_wave,_ =librosa.load(os.path.join(audio_dir,instru,case[0:-4]+'.wav'),sr=11000)
+                for n in range(0,case_length):
+                    sub_wave_set = []
+                    sub_spec_set = []
+                    stop_idx = 4
+                    # cluster by block at stop_idx, after which the program will end up
+                    
+                    video_input = video_dic[instru][case][n]
+                    audio_input = audio_dic[instru][case[0:-4]+'.wav'][n]
+                    # the following part is to test the test part with certain data 
+                    '''
+                    video_input1 = np.load('D:\\huyb\\std\\video_3frames\\acoustic_guitar\\1\\3.npy')
+                    video_input2 = np.load('D:\\huyb\\std\\video_3frames\\flute\\1\\3.npy')
+                    cv2.imshow('a img',video_input1[0,:,:,:])
+                    cv2.waitKey(0)
+                    audio_input1 = np.load('D:\\huyb\\std\\audio_spectrums_linear\\flute\\1\\3.npy')
+                    audio_input2 = np.load('D:\\huyb\\std\\audio_spectrums_linear\\acoustic_guitar\\1\\3.npy')
+                    audio_input = audio_input1 + audio_input2
+                    audio_input = audio_input[np.newaxis,np.newaxis,np.newaxis,:]
+                    video_input = np.zeros(video_input1.shape,dtype = 'uint8')
+                    gap = video_input1.shape[2]/2
+                    for p in range(0,3):
+                        video_input[p,:,0:112,:] = cv2.resize(video_input2[p, :, :, :], (112,224))
+                        video_input[p,:,112:224,:] = cv2.resize(video_input1[p, :, :, :], (112,224))
+                    video_input = np.transpose(video_input,(0,3,1,2))
+                    video_input = video_input[np.newaxis,:]
+                    
+                    
+                    temp = np.sum(np.stack([audio_input1,audio_input2]),axis = 0)
+                    # temp = temp1 + temp2
+                    temp = temp[np.newaxis,np.newaxis,np.newaxis,:]
 
-                            sub_wave_set.append(mask2wave(estimated_spects[0,idx1,idx2,0,:,:] * audio_input,'linear'))
+                    audio_input = temp
+                    '''
+                    print(video_input.shape)
+                    test_image = np.transpose(video_input,(0,1,3,4,2))
+                    plt.imshow(test_image[0,0,:,:,:])
+                    plt.show()
 
-                            wave_sets[idx1*estimated_spects.shape[1]+idx2] = np.append(
-                                            wave_sets[idx1*estimated_spects.shape[1]+idx2],
-                                            mask2wave(estimated_spects[0,idx1,idx2,0,:,:] * audio_input,'linear'))
-                            
-                            temp = amplitude_to_db(np.absolute(estimated_spects[0,idx1,idx2,0,:,:] * audio_input),ref = np.max)
-                            temp = temp.transpose().flatten()
-                            spec_sets[idx1*estimated_spects.shape[1]+idx2+1] = np.append(
-                                            spec_sets[idx1*estimated_spects.shape[1]+idx2+1],
-                                            temp.reshape(1,-1))
-                            sub_spec_set.append(temp)            
-                
-                sub_wave_set = np.array(sub_wave_set)
-                print("subwave",sub_wave_set.shape)
-                sub_wave_set = np.insert(sub_wave_set,0,mask2wave(audio_input,'linear'),0)
-                print("subwave",sub_wave_set.shape)
-                # cluster with sub wave
+                    # print("video input",video_input.shape)
+                    # print("audio input",audio_input.shape)
+                    print(n,case_length)
+                    if n==stop_idx:
+                        np.save('audio_input',audio_input)
+                        np.save('video_input_left',video_input)
+                        exit()
+                    estimated_spects = test1step(video_net,audio_net,syn_net,video_input,
+                                                audio_input,
+                                                device)      
+                    if n == 0: 
+                        temp = amplitude_to_db(np.absolute(audio_input),ref=np.max).transpose().flatten()
+                        spec_sets.append(temp)   
+                        sub_spec_set.append(temp)  
+                        for idx1 in range(estimated_spects.shape[1]):
+                            for idx2 in range(estimated_spects.shape[2]):
+                                plt.figure()
+                                plt.imshow(estimated_spects[0,idx1,idx2,0,:,:] * amplitude_to_db(np.absolute(audio_input[0,0,0,:,:]),ref=np.max))
+                                plt.savefig('./left2-'+str(n)+'.jpg')
+                                plt.show()
+                                sub_wave_set.append(mask2wave(estimated_spects[0,idx1,idx2,0,:,:] * audio_input,'linear'))
+
+                                wave_sets.append(mask2wave(estimated_spects[0,idx1,idx2,0,:,:] * audio_input,'linear'))
+                                
+                                temp = amplitude_to_db(np.absolute(estimated_spects[0,idx1,idx2,0,:,:] * audio_input),ref = np.max)
+                                temp = temp.transpose().flatten()
+                                spec_sets.append(temp)
+                                sub_spec_set.append(temp)
+                    else:
+                        temp = amplitude_to_db(np.absolute(audio_input),ref=np.max).transpose().flatten()
+                        spec_sets[0] = np.append(spec_sets[0], temp)
+                        sub_spec_set.append(temp)
+                        for idx1 in range(estimated_spects.shape[1]):
+                            for idx2 in range(estimated_spects.shape[2]):
+                                plt.figure()
+                                plt.imshow(estimated_spects[0,idx1,idx2,0,:,:] * amplitude_to_db(np.absolute(audio_input[0,0,0,:,:]),ref=np.max))
+                                plt.savefig('./left2-'+str(n)+'.jpg')
+                                plt.show()
+                                if n==3:
+                                    exit()
+
+                                sub_wave_set.append(mask2wave(estimated_spects[0,idx1,idx2,0,:,:] * audio_input,'linear'))
+
+                                wave_sets[idx1*estimated_spects.shape[1]+idx2] = np.append(
+                                                wave_sets[idx1*estimated_spects.shape[1]+idx2],
+                                                mask2wave(estimated_spects[0,idx1,idx2,0,:,:] * audio_input,'linear'))
+                                
+                                temp = amplitude_to_db(np.absolute(estimated_spects[0,idx1,idx2,0,:,:] * audio_input),ref = np.max)
+                                temp = temp.transpose().flatten()
+                                spec_sets[idx1*estimated_spects.shape[1]+idx2+1] = np.append(
+                                                spec_sets[idx1*estimated_spects.shape[1]+idx2+1],
+                                                temp.reshape(1,-1))
+                                sub_spec_set.append(temp)            
+                    
+                    sub_wave_set = np.array(sub_wave_set)
+                    print("subwave",sub_wave_set.shape)
+                    sub_wave_set = np.insert(sub_wave_set,0,mask2wave(audio_input,'linear'),0)
+                    print("subwave",sub_wave_set.shape)
+                    # cluster with sub wave
+                    # 
+                    '''
+                    if n==4: 
+                        clust_estimator.fit(sub_wave_set)
+                        for idx1 in range(estimated_spects.shape[1]):
+                            for idx2 in range(estimated_spects.shape[2]):
+                                write_wav(os.path.join('./testsub',str(idx1)+'-'+str(idx2)+'.wav'),sub_wave_set[1+idx1*estimated_spects.shape[1]+idx2,:],11000)
+                        
+                        labels = clust_estimator.labels_
+                        print(labels)
+
+                        with open('./testsub/label.txt','w') as file:
+                            file.write(str(labels[0]))
+                            file.write('\n')
+                            for idx1 in range(estimated_spects.shape[1]):
+                                file.write(str(labels[1+idx1*estimated_spects.shape[2]:(idx1+1)*estimated_spects.shape[2]+1]))
+                                file.write('\n')
+                        exit()
+                    '''
+                    # cluster with sub spect
+                    #
+                    '''
+                    sub_spec_set = np.array(sub_spec_set)
+                    print("subspec",sub_spec_set.shape)
+                    if n==0: 
+                        clust_estimator.fit(sub_spec_set)
+                        for idx1 in range(estimated_spects.shape[1]):
+                            for idx2 in range(estimated_spects.shape[2]):
+                                write_wav(os.path.join('./testsub',str(idx1)+'-'+str(idx2)+'.wav'),sub_wave_set[1+idx1*estimated_spects.shape[1]+idx2,:],11000)
+                        
+                        labels = clust_estimator.labels_
+                        print(labels)
+
+                        with open('./testsub/label.txt','w') as file:
+                            file.write(str(labels[0]))
+                            file.write('\n')
+                            for idx1 in range(estimated_spects.shape[1]):
+                                file.write(str(labels[1+idx1*estimated_spects.shape[2]:(idx1+1)*estimated_spects.shape[2]+1]))
+                                file.write('\n')
+                        exit()
+                    '''
+                # cluster with total data
                 # 
-                '''
-                if n==4: 
-                    clust_estimator.fit(sub_wave_set)
-                    for idx1 in range(estimated_spects.shape[1]):
-                        for idx2 in range(estimated_spects.shape[2]):
-                            write_wav(os.path.join('./testsub',str(idx1)+'-'+str(idx2)+'.wav'),sub_wave_set[1+idx1*estimated_spects.shape[1]+idx2,:],11000)
-                    
-                    labels = clust_estimator.labels_
-                    print(labels)
+                wave_sets = np.array(wave_sets)
+                print("waveset",wave_sets.shape)
+                BLOCK_LENGTH = 66302
+                length = math.floor(len(origin_wave)/BLOCK_LENGTH)*BLOCK_LENGTH
+                wave_sets = np.insert(wave_sets,0,origin_wave[0:length],0)
+                print("waveset",wave_sets.shape)
 
-                    with open('./testsub/label.txt','w') as file:
-                        file.write(str(labels[0]))
-                        file.write('\n')
-                        for idx1 in range(estimated_spects.shape[1]):
-                            file.write(str(labels[1+idx1*estimated_spects.shape[2]:(idx1+1)*estimated_spects.shape[2]+1]))
-                            file.write('\n')
-                    exit()
-                '''
-                # cluster with sub spect
-                #
-                sub_spec_set = np.array(sub_spec_set)
-                print("subspec",sub_spec_set.shape)
-                if n==0: 
-                    clust_estimator.fit(sub_spec_set)
-                    for idx1 in range(estimated_spects.shape[1]):
-                        for idx2 in range(estimated_spects.shape[2]):
-                            write_wav(os.path.join('./testsub',str(idx1)+'-'+str(idx2)+'.wav'),sub_wave_set[1+idx1*estimated_spects.shape[1]+idx2,:],11000)
-                    
-                    labels = clust_estimator.labels_
-                    print(labels)
+                spec_sets = np.array(spec_sets)
+                print("specset",spec_sets.shape)
 
-                    with open('./testsub/label.txt','w') as file:
-                        file.write(str(labels[0]))
-                        file.write('\n')
-                        for idx1 in range(estimated_spects.shape[1]):
-                            file.write(str(labels[1+idx1*estimated_spects.shape[2]:(idx1+1)*estimated_spects.shape[2]+1]))
-                            file.write('\n')
-                    exit()
-            # cluster with total data
-            # 
-            wave_sets = np.array(wave_sets)
-            print("waveset",wave_sets.shape)
-            BLOCK_LENGTH = 66302
-            length = math.floor(len(origin_wave)/BLOCK_LENGTH)*BLOCK_LENGTH
-            wave_sets = np.insert(wave_sets,0,origin_wave[0:length],0)
-            print("waveset",wave_sets.shape)
-
-            spec_sets = np.array(spec_sets)
-            print("specset",spec_sets.shape)
-
-            # clust_estimator.fit(wave_sets)
-            # clust_estimator.fit(spec_sets)
-            
-            for idx1 in range(estimated_spects.shape[1]):
-                for idx2 in range(estimated_spects.shape[2]):
-                    write_wav(os.path.join('./test',str(idx1)+'-'+str(idx2)+'.wav'),wave_sets[1+idx1*estimated_spects.shape[1]+idx2,:],11000) 
-            
-            # labels = clust_estimator.labels_
-
-            # print(labels)
-            '''    
-            with open('label.txt','w') as file:
+                # clust_estimator.fit(wave_sets)
+                # clust_estimator.fit(spec_sets)
+                
                 for idx1 in range(estimated_spects.shape[1]):
-                    file.write(str(labels[idx1*estimated_spects.shape[2]:(idx1+1)*estimated_spects.shape[2]-1]))
-                    file.write('\n')
-            '''
-            exit()
+                    for idx2 in range(estimated_spects.shape[2]):
+                        write_wav(os.path.join('./test',str(idx1)+'-'+str(idx2)+'.wav'),wave_sets[1+idx1*estimated_spects.shape[1]+idx2,:],11000) 
+                
+                # labels = clust_estimator.labels_
 
+                # print(labels)
+                '''    
+                with open('label.txt','w') as file:
+                    for idx1 in range(estimated_spects.shape[1]):
+                        file.write(str(labels[idx1*estimated_spects.shape[2]:(idx1+1)*estimated_spects.shape[2]-1]))
+                        file.write('\n')
+                '''
+                exit()
+
+
+def test_evaluate(ground_truth_dir,test_result_dir):
+    ground_truth_list = os.listdir(ground_truth_dir)
+    test_result_list = os.listdir(test_result_dir)
+    total_sdr = 0
+    for i in range(len(ground_truth_list)):
+        # print(os.path.join(test_result_dir,test_result_list[i]))
+        test_result,_ = librosa.load(os.path.join(test_result_dir,test_result_list[i]),sr=11000)
+        test_result = librosa.resample(test_result,11000,44100)
+        ground_truth,_ = librosa.load(os.path.join(ground_truth_dir,ground_truth_list[i]),sr=44100)
+        test_result = np.append(test_result,ground_truth[len(test_result):])
+        # print(test_result)
+        # print(np.array(test_result).shape,np.array(ground_truth).shape)
+    
+        test_spect = librosa.stft(test_result)   
+        ground_spect = librosa.stft(ground_truth) 
+        '''
+        plt.subplot(1,2,1)
+        librosa.display.specshow(librosa.amplitude_to_db(np.abs(test_spect),ref=np.max),y_axis='log', x_axis='time') 
+        plt.subplot(1,2,2)
+        librosa.display.specshow(librosa.amplitude_to_db(np.abs(ground_spect),ref=np.max),y_axis='log', x_axis='time')
+        plt.show()
+        '''
+        [sdr, _, _, _] = mir_eval.separation.bss_eval_sources(test_result,ground_truth)
+        print(test_result_list[i],ground_truth_list[i],sdr)
+
+        total_sdr += sdr
+        '''
+        [sdr, _, _, _] = mir_eval.separation.bss_eval_sources(ground_truth,ground_truth)
+        print(ground_truth_list[i],ground_truth_list[i],sdr)
+        '''
+    print(total_sdr/len(ground_truth_list))
 
 if __name__ == '__main__':
     test_train1step()
