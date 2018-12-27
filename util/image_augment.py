@@ -14,13 +14,15 @@ def main(instrument_dir = '/data/liyunfei/dataset/video_3frames/saxphone'):
     for case in cases:
         case_dir = os.path.join(instrument_dir, case)
         aug_case_dir = os.path.join(instrument_dir, str(int(case) + case_num))
+        if not os.path.exists(aug_case_dir):
+            os.mkdir(aug_case_dir)
         items = os.listdir(case_dir)
         for item in items:
             image = np.load(os.path.join(case_dir, item))
-            flipped_image = np.flip(image, axis=-1)
+            flipped_image = np.flip(image, axis=1)
             plt.imshow(flipped_image[0])
             plt.show()
-            exit()
+            # exit()
             aug_item_name = os.path.join(aug_case_dir, item)
             print("aug_item_name", aug_item_name)
             np.save(aug_item_name, flipped_image)
