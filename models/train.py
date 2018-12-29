@@ -15,6 +15,7 @@ import librosa
 import math
 import cv2
 import mir_eval
+import scipy.io.wavfile
 from librosa import amplitude_to_db
 from librosa.output import write_wav
 import librosa.display
@@ -480,18 +481,18 @@ def test_all(video_dir, audio_dir, result_dir, batch_size=1, log_dir=None, model
     audio_net = UNet7().to(device)
     syn_net = synthesizer().to(device)
     clust_estimator = KMeans(n_clusters=2)
-    assert os.path.exists(os.path.join(model_dir, '4video_net_params.pkl'))
-    assert os.path.exists(os.path.join(model_dir, '4audio_net_params.pkl'))
-    assert os.path.exists(os.path.join(model_dir, '4syn_net_params.pkl'))
-    video_net.load_state_dict(torch.load(os.path.join(model_dir, '4video_net_params.pkl')))
-    audio_net.load_state_dict(torch.load(os.path.join(model_dir, '4audio_net_params.pkl')))
-    syn_net.load_state_dict(torch.load(os.path.join(model_dir, '4syn_net_params.pkl')))
+    assert os.path.exists(os.path.join(model_dir, '10video_net_params.pkl'))
+    assert os.path.exists(os.path.join(model_dir, '10audio_net_params.pkl'))
+    assert os.path.exists(os.path.join(model_dir, '10syn_net_params.pkl'))
+    video_net.load_state_dict(torch.load(os.path.join(model_dir, '10video_net_params.pkl')))
+    audio_net.load_state_dict(torch.load(os.path.join(model_dir, '10audio_net_params.pkl')))
+    syn_net.load_state_dict(torch.load(os.path.join(model_dir, '10syn_net_params.pkl')))
     # TODO load testing data and call `test1step`
     video_net.eval()
     audio_net.eval()
     syn_net.eval()
 
-    [video_dic, audio_dic] = load_test_data(video_dir, audio_dir,test_type=test_type)
+    [video_dic, audio_dic,mixed_audio] = load_test_data(video_dir, audio_dir,test_type=test_type)
     if test_type=='test25':
         if(len(video_dic.keys())==len(audio_dic.keys())):
             files = video_dic.keys()
@@ -508,20 +509,68 @@ def test_all(video_dir, audio_dir, result_dir, batch_size=1, log_dir=None, model
             block_num = video_data.shape[0]
             estimated_wav = []
             for i in range(block_num):
+                audio_input = audio_data[i,:,:,:,:,:]
+                masks = []
                 for k in range(2):
-                    video_input = video_data[i,k,:,:,:,:][np.newaxis,:]
-                    audio_input = audio_data[i,:,:,:,:,:]
+                    video_input = video_data[i,k,:,:,:,:][np.newaxis,:]                    
                     mask = test1step(video_net,audio_net,syn_net,video_input,
                                                 audio_input,
                                                 device)
-                    if i==0:
-                        estimated_wav.append(mask2wave(mask[0,0,0,0,:,:] * audio_input,'linear'))
-                    else:  
-                        estimated_wav[k] = np.append(estimated_wav[k],mask2wave(mask[0,0,0,0,:,:] * audio_input,'linear'))
+                    masks.append(mask) 
+                masks = np.array(masks)
+                # print("masks shape",masks.shape)    
+                have_zero0 = 0
+                have_zero1 = 0
+                for layer in range(video_data.shape[2]):
+                    # print("sums:",np.sum(video_data[i,0,layer,:,:,:]),np.sum(video_data[i,1,layer,:,:,:])) 
+                    if np.sum(video_data[i,0,layer,:,:,:]) < 10:
+                        have_zero0 = 1
+                    if np.sum(video_data[i,1,layer,:,:,:]) < 10:
+                        have_zero1 = 1
+
+                if i==0:
+                    if have_zero0 and not have_zero1:
+                        # print("left black")
+                        estimated_wav.append(mask2wave((1-masks[1,0,0,0,0,:,:]) * audio_input,'linear'))
+                        estimated_wav.append(mask2wave(masks[1,0,0,0,0,:,:] * audio_input,'linear'))
+                    elif have_zero1 and not have_zero0:
+                        # print("right black")
+                        estimated_wav.append(mask2wave((masks[0,0,0,0,0,:,:]) * audio_input,'linear'))
+                        estimated_wav.append(mask2wave((1-masks[0,0,0,0,0,:,:]) * audio_input,'linear'))
+                    else:
+                        # print("no black")
+                        estimated_wav.append(mask2wave(masks[0,0,0,0,0,:,:] * audio_input,'linear'))
+                        estimated_wav.append(mask2wave(masks[1,0,0,0,0,:,:] * audio_input,'linear'))
+                else:  
+                    if have_zero0 and not have_zero1:
+                        # print("left black")
+                        estimated_wav[0] = np.append(estimated_wav[0],mask2wave((1-masks[1,0,0,0,0,:,:]) * audio_input,'linear'))
+                        estimated_wav[1] = np.append(estimated_wav[1],mask2wave(masks[1,0,0,0,0,:,:] * audio_input,'linear'))
+                    elif have_zero1 and not have_zero0:
+                        # print("right black")
+                        estimated_wav[0] = np.append(estimated_wav[0],mask2wave(masks[0,0,0,0,0,:,:] * audio_input,'linear'))
+                        estimated_wav[1] = np.append(estimated_wav[1],mask2wave((1-masks[0,0,0,0,0,:,:]) * audio_input,'linear'))
+                    else:
+                        # print("no black")
+                        estimated_wav[0] = np.append(estimated_wav[0],mask2wave(masks[0,0,0,0,0,:,:] * audio_input,'linear'))
+                        estimated_wav[1] = np.append(estimated_wav[1],mask2wave(masks[1,0,0,0,0,:,:] * audio_input,'linear'))
+                    
             estimated_wav = np.array(estimated_wav)
+            new_estimated_wav = []
+            for i in range(2):
+                temp = librosa.resample(estimated_wav[i,:],11000,44100)
+                temp = temp[:len(mixed_audio[str(onefile)+'.wav'])]
+                # temp = np.append(temp,mixed_audio[str(onefile)+'.wav'][len(temp):])
+                new_estimated_wav.append(temp)
+            estimated_wav = np.array(new_estimated_wav)
+            estimated_wav = estimated_wav*32768
+            # print(estimated_wav[0][10000:10010])
+            estimated_wav = np.round(estimated_wav).astype('int16')
             print(estimated_wav.shape)
-            write_wav(os.path.join(result_dir,onefile+'_1.wav'),estimated_wav[0,:],11000)
-            write_wav(os.path.join(result_dir,onefile+'_2.wav'),estimated_wav[1,:],11000)
+            # write_wav(os.path.join(result_dir,onefile+'_seg1.wav'),estimated_wav[0,:],sr=44100)
+            # write_wav(os.path.join(result_dir,onefile+'_seg2.wav'),estimated_wav[1,:],sr=44100)
+            scipy.io.wavfile.write(os.path.join(result_dir,onefile+'_seg1.wav'),44100,estimated_wav[0,:])
+            scipy.io.wavfile.write(os.path.join(result_dir,onefile+'_seg2.wav'),44100,estimated_wav[1,:])
             
                     
 
@@ -727,32 +776,63 @@ def test_all(video_dir, audio_dir, result_dir, batch_size=1, log_dir=None, model
                 exit()
 
 
+def sample(ori,l):
+    l1=len(ori)
+    res=np.zeros([l])
+    # print(len(ori),len(res))
+    for i in range(l):
+        res[i]=ori[int(round((i+0.0)/l*l1))]
+    return res
+
+
 def test_evaluate(ground_truth_dir,test_result_dir):
     ground_truth_list = os.listdir(ground_truth_dir)
     test_result_list = os.listdir(test_result_dir)
     total_sdr = 0
-    for i in range(len(ground_truth_list)):
+    print(len(ground_truth_list))
+    for i in range(np.floor(len(ground_truth_list)/2).astype('int16')):
         # print(os.path.join(test_result_dir,test_result_list[i]))
-        test_result,_ = librosa.load(os.path.join(test_result_dir,test_result_list[i]),sr=11000)
-        test_result = librosa.resample(test_result,11000,44100)
-        ground_truth,_ = librosa.load(os.path.join(ground_truth_dir,ground_truth_list[i]),sr=44100)
-        test_result = np.append(test_result,ground_truth[len(test_result):])
-        # print(test_result)
-        # print(np.array(test_result).shape,np.array(ground_truth).shape)
-    
+        # test_result,_ = librosa.load(os.path.join(test_result_dir,test_result_list[i]),sr=44100,dtype=np.float16)
+        _,test_result1 = scipy.io.wavfile.read(os.path.join(test_result_dir,test_result_list[i*2]),44100)
+        _,test_result2 = scipy.io.wavfile.read(os.path.join(test_result_dir,test_result_list[i*2+1]),44100)
+        test_result = np.array([test_result1,test_result2])
+        test_result = test_result.astype('float32')/float(32768)
+
+        # test_result = librosa.resample(test_result,11000,44100)
+        ground_truth1,_ = librosa.load(os.path.join(ground_truth_dir,ground_truth_list[i*2]),sr=44100)
+        ground_truth2,_ = librosa.load(os.path.join(ground_truth_dir,ground_truth_list[i*2+1]),sr=44100)
+        ground_truth = np.array([ground_truth1,ground_truth2])
+        print(np.array(test_result).shape,np.array(ground_truth).shape)
+        # test_result = np.append(test_result,ground_truth[len(test_result):])
+        '''
+        time = len(test_result)/44100
+        new_freq = np.round(2000000.0/time)
+        test_result = librosa.resample(test_result,44100,new_freq)
+        ground_truth = librosa.resample(ground_truth,44100,new_freq)
+        print(np.array(test_result).shape,np.array(ground_truth).shape)
+        '''
+
+        '''
         test_spect = librosa.stft(test_result)   
         ground_spect = librosa.stft(ground_truth) 
-        '''
+        
         plt.subplot(1,2,1)
         librosa.display.specshow(librosa.amplitude_to_db(np.abs(test_spect),ref=np.max),y_axis='log', x_axis='time') 
         plt.subplot(1,2,2)
         librosa.display.specshow(librosa.amplitude_to_db(np.abs(ground_spect),ref=np.max),y_axis='log', x_axis='time')
         plt.show()
         '''
-        [sdr, _, _, _] = mir_eval.separation.bss_eval_sources(test_result,ground_truth)
-        print(test_result_list[i],ground_truth_list[i],sdr)
+        outfile = open('test_result.txt','a+')
+        [sdr, sir, sar, pos] = mir_eval.separation.bss_eval_sources(ground_truth,test_result)
+        print(test_result_list[i*2],ground_truth_list[i*2])
+        outfile.write(str(test_result_list[i*2])+str(ground_truth_list[i*2])+'\n')
+        print(test_result_list[i*2+1],ground_truth_list[i*2+1])
+        outfile.write(str(test_result_list[i*2+1])+str(ground_truth_list[i*2+1])+'\n')
+        print(sdr,sir,sar,pos)
+        outfile.write(str(sdr)+str(sir)+str(sar)+str(pos)+'\n')
+        outfile.close()
 
-        total_sdr += sdr
+        total_sdr += sum(sdr)
         '''
         [sdr, _, _, _] = mir_eval.separation.bss_eval_sources(ground_truth,ground_truth)
         print(ground_truth_list[i],ground_truth_list[i],sdr)

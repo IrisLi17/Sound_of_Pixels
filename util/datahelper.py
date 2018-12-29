@@ -11,6 +11,9 @@ from librosa import amplitude_to_db
 import math
 import matplotlib.pyplot as plt
 
+import sys
+sys.path.append(r'D:\huyb\std\Sound_of_Pixels\util')
+from split_image_hough import split_image
 
 def convert_video(src, dst):
     # dst string cannot be src string
@@ -362,16 +365,17 @@ def load_test_data(videodir, audiodir, BLOCK_LENGTH = 66302, WINDOW_SIZE = 1022,
     elif test_type=='test25':
         video_data = {}
         audio_data = {}
+        mixed_audio = {}
         BLOCK_TIME = BLOCK_LENGTH/SAMPLE_RATE
         video_block_length = math.floor(BLOCK_TIME*FPS)
-        FRAME_INDEX = [0, math.floor((video_block_length-1)/2), video_block_length-1]
-        frame_each_block = math.floor(video_block_length/10)+1
+        FRAME_INDEX = [0, 70, 140]
+        frame_each_block = math.floor(video_block_length/10)
         videos = os.listdir(videodir)
         for video in videos:
             video_data[video] = []
             video_dir = os.path.join(videodir, video)
             frameCount = int(os.listdir(video_dir)[-1][0:-4])
-            block_num = math.floor(frameCount/frame_each_block)
+            block_num = math.floor(frameCount/BLOCK_TIME/FPS*10)
             print("block_num:",block_num)
             for i in range(block_num):
                 index_str = [str(math.floor(x/10)+1+i*frame_each_block).zfill(6) + '.jpg' for x in FRAME_INDEX] 
@@ -380,21 +384,33 @@ def load_test_data(videodir, audiodir, BLOCK_LENGTH = 66302, WINDOW_SIZE = 1022,
                     frame_dir = os.path.join(video_dir,index_str[idx])
                     frame = np.array(cv2.imread(frame_dir),dtype='uint8')
                     gap = math.floor(frame.shape[1]/2)
-                    # gap = math.floor(gap*0.66)
+                    # gap = math.floor(gap*1.45)
+                    gap = split_image(frame_dir)[0]
+                    # print("gap",gap)
                     final[0, idx, :, :, :] = cv2.resize(frame[ :, 0:gap, :], (224, 224)) 
                     final[1, idx, :, :, :] = cv2.resize(frame[:, gap:-1, :], (224, 224))
-                    ''' 
-                    plt.subplot(1,2,1)
-                    plt.imshow(final[0, idx, :, :, :])
-                    plt.subplot(1,2,2)
-                    plt.imshow(final[1, idx, :, :, :])
-                    plt.show()
-                    exit()
-                    '''
-                    
-
+                    # if i==0 and idx==0:
+                    #     plt.subplot(1,2,1)
+                    #     plt.imshow(final[0, idx, :, :, :])
+                    #     plt.subplot(1,2,2)
+                    #     plt.imshow(final[1, idx, :, :, :])
+                    #     plt.show()
+                    #     # exit()
+                                        
                 temp = np.transpose(final,(0,1,4,2,3))
                 video_data[video].append(temp)
+            ## add a tail for image data
+            final = np.empty((2, len(FRAME_INDEX), 224, 224, 3),np.dtype('uint8'))
+            frame_dir = os.path.join(video_dir,os.listdir(video_dir)[-1])
+            for idx in range(3):
+                frame = np.array(cv2.imread(frame_dir),dtype='uint8')
+                gap = math.floor(frame.shape[1]/2)
+                # gap = math.floor(gap*1.45)
+                final[0, idx, :, :, :] = cv2.resize(frame[ :, 0:gap, :], (224, 224)) 
+                final[1, idx, :, :, :] = cv2.resize(frame[:, gap:-1, :], (224, 224))
+            temp = np.transpose(final,(0,1,4,2,3))
+            video_data[video].append(temp)
+
 
         frequencies = np.linspace(SAMPLE_RATE/2/512,SAMPLE_RATE/2,512)
         log_freq = np.log10(frequencies)
@@ -408,8 +424,13 @@ def load_test_data(videodir, audiodir, BLOCK_LENGTH = 66302, WINDOW_SIZE = 1022,
             print("load music from " + str(audio))
             audio_data[audio] = []
             audio_dir = os.path.join(audiodir, audio)
-            w,_ = librosa.load(audio_dir,sr=SAMPLE_RATE)
-            block_num = math.floor(len(w)/BLOCK_LENGTH)
+            w,_ = librosa.load(audio_dir,sr=44100)
+            new_w = librosa.resample(w,44100,11000)
+            block_num = math.floor(len(new_w)/BLOCK_LENGTH)
+            temp = new_w[0:block_num*BLOCK_LENGTH]
+            length = len(librosa.resample(temp,11000,44100))
+            mixed_audio[audio] = w
+            w = new_w
             for i in range(block_num):
                 # select the wave data
                 data = w[i*BLOCK_LENGTH:(i+1)*BLOCK_LENGTH]
@@ -424,7 +445,19 @@ def load_test_data(videodir, audiodir, BLOCK_LENGTH = 66302, WINDOW_SIZE = 1022,
                 # save data
                 stft_data = stft_data[np.newaxis,np.newaxis,np.newaxis, :]
                 audio_data[audio].append(stft_data)
-        return [video_data,audio_data]
+            
+            ## add a tail for audio data
+            data = w[block_num*BLOCK_LENGTH:]
+            data = np.append(data,np.zeros(BLOCK_LENGTH-len(data)))
+            stft_data = librosa.stft(data,n_fft = WINDOW_SIZE,hop_length = HOP_LENGTH,center = False)
+            if fstype == 'log':
+                stft_data = stft_data[sample_index,:]
+            elif fstype == 'linear':
+                stft_data = stft_data[sample_index2,:]
+            stft_data = stft_data[np.newaxis,np.newaxis,np.newaxis, :]
+            audio_data[audio].append(stft_data)
+        
+        return [video_data,audio_data,mixed_audio]
 
     
 
