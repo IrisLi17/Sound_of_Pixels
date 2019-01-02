@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 import librosa
 import math
 import cv2
+import time
 import mir_eval
 import scipy.io.wavfile
 from librosa import amplitude_to_db
@@ -66,11 +67,31 @@ def train1step(video_net, audio_net, syn_net, video_optimizer, audio_optimizer, 
     out_audio_net = audio_net.forward(synspect_input)  # size batch_size,K,256,256
     # print('out audio feature' + str(out_audio_net))
 
+    ## get the feature map of audio
+    # plt.figure(1)
+    # for x in range(4):
+    #     for y in range(4):
+    #         plt.subplot(4,4,4*x+y+1)
+    #         plt.imshow(out_audio_net[0,4*x+y,:,:].detach().cpu().numpy())
+    # plt.show()
+
     for i in range(N):
         # forward video
         out_video_net = video_net.forward(image_input[i, :, :, :, :])  # size (batch_size, K, 1, 1)
         # print('video feature ' + str(i) + str(out_video_net[0,:,0,0]))
         # forward synthesizer
+
+        ## get the feature map of video
+        # raw_image = image_input[i,0,:,:,:].detach().cpu().numpy()
+        # raw_image = np.transpose(raw_image,(1,2,0))
+        # plt.figure(2)
+        # plt.imshow(raw_image)
+        # plt.title('raw_image')
+        # plt.show()
+        # plt.figure(3)
+        # plt.bar(range(16),out_video_net[0,:,0,0].detach().cpu().numpy())
+        # plt.show()
+
         temp = out_video_net * out_audio_net
         temp = torch.transpose(temp, 1, 2)
         temp = torch.transpose(temp, 2, 3)
@@ -247,13 +268,13 @@ def train_all(spec_dir, image_dir, num_epoch=10, steps_per_epoch = 50000, batch_
     video_net = modifyresnet18(batch_size).to(device)
     audio_net = UNet7().to(device)
     syn_net = synthesizer().to(device)
-    if os.path.exists(os.path.join(model_dir, '4video_net_params.pkl')) and os.path.exists(
-            os.path.join(model_dir, '4audio_net_params.pkl')) and os.path.exists(
-        os.path.join(model_dir, '4syn_net_params.pkl')):
+    if os.path.exists(os.path.join(model_dir, '18video_net_params.pkl')) and os.path.exists(
+            os.path.join(model_dir, '18audio_net_params.pkl')) and os.path.exists(
+        os.path.join(model_dir, '18syn_net_params.pkl')):
         print('load params!')
-        video_net.load_state_dict(torch.load(os.path.join(model_dir, '4video_net_params.pkl')))
-        audio_net.load_state_dict(torch.load(os.path.join(model_dir, '4audio_net_params.pkl')))
-        syn_net.load_state_dict(torch.load(os.path.join(model_dir, '4syn_net_params.pkl')))
+        video_net.load_state_dict(torch.load(os.path.join(model_dir, '18video_net_params.pkl')))
+        audio_net.load_state_dict(torch.load(os.path.join(model_dir, '18audio_net_params.pkl')))
+        syn_net.load_state_dict(torch.load(os.path.join(model_dir, '18syn_net_params.pkl')))
         if validate:
             video_net.eval()
             audio_net.eval()
@@ -388,35 +409,24 @@ def train_all(spec_dir, image_dir, num_epoch=10, steps_per_epoch = 50000, batch_
             torch.save(syn_net.state_dict(), os.path.join(model_dir, str(epoch) + 'syn_net_params.pkl'))
             print("model saved to " + str(model_dir) + '\n')
     else:
-        [spec_data, image_data] = load_all_training_data(spec_dir, image_dir)
+        # [spec_data, image_data] = load_all_training_data(spec_dir, image_dir)
         print('Data loaded!')
         while (input() != 'q'):
-            image_input = np.zeros((N, 3 * batch_size, 3, 224, 224), dtype='float32')
-            '''
-            _spect_input = []
-            for bidx in range(batch_size):
-                [spect_input_comp, image_input_mini] = sample_from_dict(spec_data, image_data)
-                        
-                _spect_input.append(spect_input_comp)
-                # dB shouln't be take here
-                image_input[:, 3 * bidx:3 * bidx + 3, :, :, :] = image_input_mini
-            spect_input = np.transpose(np.stack(_spect_input, axis=0),
-                                               (1, 0, 2, 3, 4))
-            '''
-            [spect_input_comp, image_input_mini] = sample_from_dict(spec_data, image_data)  # N,1,256,256; N,3,3,224,224
-            spect_input_mini = np.transpose(spect_input_comp[np.newaxis, :], (1, 0, 2, 3, 4))
+            # image_input = np.zeros((N, 3 * batch_size, 3, 224, 224), dtype='float32')
+            # [spect_input_comp, image_input_mini] = sample_from_dict(spec_data, image_data)  # N,1,256,256; N,3,3,224,224
+            # spect_input_mini = np.transpose(spect_input_comp[np.newaxis, :], (1, 0, 2, 3, 4))
 
             # print(spect_input_mini.shape)
             # print(image_input_mini.shape)
 
             # the following part is to test the validate part with certain data
-            '''
-            video_input1 = np.load('D:\\huyb\\std\\video_3frames\\flute\\1\\8.npy')
-            video_input2 = np.load('D:\\huyb\\std\\video_3frames\\cello\\1\\7.npy')
+            
+            video_input1 = np.load('D:\\huyb\\std\\video_3frames\\violin\\3\\8.npy')
+            video_input2 = np.load('D:\\huyb\\std\\video_3frames\\cello\\3\\7.npy')
             video_input1 = np.transpose(video_input1,(0,3,1,2))
             video_input2 = np.transpose(video_input2,(0,3,1,2))
-            audio_input1 = np.load('D:\\huyb\\std\\audio_spectrums_linear\\flute\\1\\8.npy')
-            audio_input2 = np.load('D:\\huyb\\std\\audio_spectrums_linear\\cello\\1\\7.npy')
+            audio_input1 = np.load('D:\\huyb\\std\\audio_spectrums_linear\\violin\\3\\8.npy')
+            audio_input2 = np.load('D:\\huyb\\std\\audio_spectrums_linear\\cello\\3\\7.npy')
             audio_input = []
             audio_input.append(audio_input1[np.newaxis,:])
             audio_input.append(audio_input2[np.newaxis,:])
@@ -430,7 +440,7 @@ def train_all(spec_dir, image_dir, num_epoch=10, steps_per_epoch = 50000, batch_
             image_input_mini = np.stack(video_input,axis=0)
             print(spect_input_mini.shape)
             print(image_input_mini.shape)
-            '''
+            
 
             [_, estimated_masks, ground_truth] = train1step(video_net, audio_net, syn_net, None, None, None,
                                                             image_input_mini, spect_input_mini,
@@ -476,24 +486,28 @@ def train_all(spec_dir, image_dir, num_epoch=10, steps_per_epoch = 50000, batch_
 
 
 def test_all(video_dir, audio_dir, result_dir, batch_size=1, log_dir=None, model_dir=None,test_type='validate'):                    
+    start_time = time.time()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     video_net = modifyresnet18(batch_size).to(device)
     audio_net = UNet7().to(device)
     syn_net = synthesizer().to(device)
     clust_estimator = KMeans(n_clusters=2)
-    assert os.path.exists(os.path.join(model_dir, '10video_net_params.pkl'))
-    assert os.path.exists(os.path.join(model_dir, '10audio_net_params.pkl'))
-    assert os.path.exists(os.path.join(model_dir, '10syn_net_params.pkl'))
-    video_net.load_state_dict(torch.load(os.path.join(model_dir, '10video_net_params.pkl')))
-    audio_net.load_state_dict(torch.load(os.path.join(model_dir, '10audio_net_params.pkl')))
-    syn_net.load_state_dict(torch.load(os.path.join(model_dir, '10syn_net_params.pkl')))
+    assert os.path.exists(os.path.join(model_dir, '18video_net_params.pkl'))
+    assert os.path.exists(os.path.join(model_dir, '18audio_net_params.pkl'))
+    assert os.path.exists(os.path.join(model_dir, '18syn_net_params.pkl'))
+    video_net.load_state_dict(torch.load(os.path.join(model_dir, '18video_net_params.pkl')))
+    audio_net.load_state_dict(torch.load(os.path.join(model_dir, '18audio_net_params.pkl')))
+    syn_net.load_state_dict(torch.load(os.path.join(model_dir, '18syn_net_params.pkl')))
     # TODO load testing data and call `test1step`
     video_net.eval()
     audio_net.eval()
     syn_net.eval()
-
+    end_time = time.time()
+    print("model initial cost:",end_time-start_time)
     [video_dic, audio_dic,mixed_audio] = load_test_data(video_dir, audio_dir,test_type=test_type)
-    if test_type=='test25':
+    ss_time = time.time()
+    print("data load cost:",ss_time-end_time)
+    if test_type=='test25' or test_type=='test7':
         if(len(video_dic.keys())==len(audio_dic.keys())):
             files = video_dic.keys()
         else:
@@ -504,8 +518,8 @@ def test_all(video_dir, audio_dir, result_dir, batch_size=1, log_dir=None, model
         for onefile in files:
             video_data = np.array(video_dic[onefile])
             audio_data = np.array(audio_dic[str(onefile)+'.wav'])
-            print(video_data.shape)
-            print(audio_data.shape)
+            # print(video_data.shape)
+            # print(audio_data.shape)
             block_num = video_data.shape[0]
             estimated_wav = []
             for i in range(block_num):
@@ -566,11 +580,13 @@ def test_all(video_dir, audio_dir, result_dir, batch_size=1, log_dir=None, model
             estimated_wav = estimated_wav*32768
             # print(estimated_wav[0][10000:10010])
             estimated_wav = np.round(estimated_wav).astype('int16')
-            print(estimated_wav.shape)
+            # print(estimated_wav.shape)
             # write_wav(os.path.join(result_dir,onefile+'_seg1.wav'),estimated_wav[0,:],sr=44100)
             # write_wav(os.path.join(result_dir,onefile+'_seg2.wav'),estimated_wav[1,:],sr=44100)
             scipy.io.wavfile.write(os.path.join(result_dir,onefile+'_seg1.wav'),44100,estimated_wav[0,:])
             scipy.io.wavfile.write(os.path.join(result_dir,onefile+'_seg2.wav'),44100,estimated_wav[1,:])
+        end_time = time.time()
+        print("calculate cost:",end_time-ss_time)
             
                     
 

@@ -362,7 +362,7 @@ def load_test_data(videodir, audiodir, BLOCK_LENGTH = 66302, WINDOW_SIZE = 1022,
                     audio_data[instru][case].append(stft_data)
 
         return [video_data,audio_data]
-    elif test_type=='test25':
+    elif test_type=='test25' or test_type=='test7':
         video_data = {}
         audio_data = {}
         mixed_audio = {}
@@ -370,7 +370,7 @@ def load_test_data(videodir, audiodir, BLOCK_LENGTH = 66302, WINDOW_SIZE = 1022,
         video_block_length = math.floor(BLOCK_TIME*FPS)
         FRAME_INDEX = [0, 70, 140]
         frame_each_block = math.floor(video_block_length/10)
-        videos = os.listdir(videodir)
+        videos = os.listdir(videodir)[6:7]
         for video in videos:
             video_data[video] = []
             video_dir = os.path.join(videodir, video)
@@ -383,19 +383,21 @@ def load_test_data(videodir, audiodir, BLOCK_LENGTH = 66302, WINDOW_SIZE = 1022,
                 for idx in range(len(index_str)):
                     frame_dir = os.path.join(video_dir,index_str[idx])
                     frame = np.array(cv2.imread(frame_dir),dtype='uint8')
-                    gap = math.floor(frame.shape[1]/2)
-                    # gap = math.floor(gap*1.45)
-                    gap = split_image(frame_dir)[0]
+                    if test_type == 'test7':
+                        gap = math.floor(frame.shape[1]/2)
+                    elif test_type == 'test25':
+                        gap = split_image(frame_dir)[0]
                     # print("gap",gap)
+                    gap = math.floor(gap*0.8)
                     final[0, idx, :, :, :] = cv2.resize(frame[ :, 0:gap, :], (224, 224)) 
                     final[1, idx, :, :, :] = cv2.resize(frame[:, gap:-1, :], (224, 224))
-                    # if i==0 and idx==0:
-                    #     plt.subplot(1,2,1)
-                    #     plt.imshow(final[0, idx, :, :, :])
-                    #     plt.subplot(1,2,2)
-                    #     plt.imshow(final[1, idx, :, :, :])
-                    #     plt.show()
-                    #     # exit()
+                    if i==0 and idx==0:
+                        plt.subplot(1,2,1)
+                        plt.imshow(final[0, idx, :, :, :])
+                        plt.subplot(1,2,2)
+                        plt.imshow(final[1, idx, :, :, :])
+                        plt.show()
+                        # exit()
                                         
                 temp = np.transpose(final,(0,1,4,2,3))
                 video_data[video].append(temp)
@@ -404,8 +406,10 @@ def load_test_data(videodir, audiodir, BLOCK_LENGTH = 66302, WINDOW_SIZE = 1022,
             frame_dir = os.path.join(video_dir,os.listdir(video_dir)[-1])
             for idx in range(3):
                 frame = np.array(cv2.imread(frame_dir),dtype='uint8')
-                gap = math.floor(frame.shape[1]/2)
-                # gap = math.floor(gap*1.45)
+                if test_type == 'test7':
+                    gap = math.floor(frame.shape[1]/2)
+                elif test_type == 'test25':
+                    gap = split_image(frame_dir)[0]
                 final[0, idx, :, :, :] = cv2.resize(frame[ :, 0:gap, :], (224, 224)) 
                 final[1, idx, :, :, :] = cv2.resize(frame[:, gap:-1, :], (224, 224))
             temp = np.transpose(final,(0,1,4,2,3))
@@ -419,7 +423,7 @@ def load_test_data(videodir, audiodir, BLOCK_LENGTH = 66302, WINDOW_SIZE = 1022,
         # prepare for log resample
         sample_index2 =np.array(np.linspace(0,510,256)).astype(int)
 
-        audios = os.listdir(audiodir)
+        audios = os.listdir(audiodir)[6:7]
         for audio in audios:
             print("load music from " + str(audio))
             audio_data[audio] = []

@@ -22,7 +22,7 @@ def main():
     # plt.show()
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('--log_dir', default='../testlog')
-    parser.add_argument('--testresult_dir', default='../test_result')
+    parser.add_argument('--testresult_dir', default='../testset7_result')
     parser.add_argument('--model_dir', default='../model')
     parser.add_argument('--epoch', type=int, default=30)
     parser.add_argument('--steps_per_epoch', type=int, default=50000)
@@ -30,12 +30,13 @@ def main():
     parser.add_argument('--validate', type=int, default=0)
     args = parser.parse_args()
     log_dir = os.path.join(args.log_dir, datetime.datetime.now().strftime("%Y-%m-%d-%H-%M-%S"))
-    test_audio_dir = r'D:\huyb\std\testset25\gt_audio'
-    test_video_dir = r'D:\huyb\std\testset25\testimage'
+    test_audio_dir = r'D:\huyb\std\testset7\gt_audio'
+    test_video_dir = r'D:\huyb\std\testset7\testimage'
     test_result_dir = args.testresult_dir
+    # test_result_dir = r'D:\huyb\std\testset7_result'
     ground_truth_dir = '../testset25_audio_gt/evaluate'
     test_all(test_video_dir,test_audio_dir,test_result_dir,batch_size=1,
-            log_dir=log_dir,model_dir=args.model_dir,test_type='test25')
+            log_dir=log_dir,model_dir=args.model_dir,test_type='test7')
     # test_evaluate(ground_truth_dir,test_result_dir)
 
 
